@@ -1,0 +1,9 @@
+/.venv/
+/.cache/
+/build/
+/dist/
+/*.egg-info/
+/goed2kd
+/goed2kd.exe
+/__pycache__/
+*.pyc
