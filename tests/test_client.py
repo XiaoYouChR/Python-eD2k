@@ -79,7 +79,22 @@ class ClientTest(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(Error) as raised:
                 await client.addLink(second, Path(outputDir))
 
-            self.assertEqual(raised.exception.code, ErrorCode.TRANSFER_EXISTS)
+            self.assertEqual(raised.exception.code, ErrorCode.OUTPUT_EXISTS)
+
+            await asyncio.wait_for(client.close(), timeout=5)
+
+    async def test_add_link_rejects_an_existing_output_file(self) -> None:
+        link = "ed2k://|file|existing.bin|2048|31D6CFE0D16AE931B73C59D7E0C089C0|/"
+        with tempfile.TemporaryDirectory() as dataDir, tempfile.TemporaryDirectory() as outputDir:
+            Path(outputDir, "existing.bin").write_bytes(b"unrelated")
+            client = Client(SIDECAR, Path(dataDir))
+            await client.start(Settings(enableDht=False, enableUpnp=False))
+            self.addAsyncCleanup(client.terminate)
+
+            with self.assertRaises(Error) as raised:
+                await client.addLink(link, Path(outputDir))
+
+            self.assertEqual(raised.exception.code, ErrorCode.OUTPUT_EXISTS)
 
             await asyncio.wait_for(client.close(), timeout=5)
 

@@ -9,6 +9,7 @@ const (
 	codeInvalidLink      = "INVALID_LINK"
 	codeInvalidRequest   = "INVALID_REQUEST"
 	codeNotRunning       = "NOT_RUNNING"
+	codeOutputExists     = "OUTPUT_EXISTS"
 	codeTransferExists   = "TRANSFER_EXISTS"
 	codeTransferNotFound = "TRANSFER_NOT_FOUND"
 )

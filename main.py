@@ -19,7 +19,6 @@ LINK = (
     "zh-cn_windows_11_consumer_editions_version_25h2_updated_may_2026_x64_dvd_ceef8999.iso"
     "|8700340224|2C26BA17D74D1A7439EBDED8D6D6F949|/"
 )
-FILE_NAME = "zh-cn_windows_11_consumer_editions_version_25h2_updated_may_2026_x64_dvd_ceef8999.iso"
 FILE_HASH = "2C26BA17D74D1A7439EBDED8D6D6F949"
 FILE_SIZE = 8_700_340_224
 
@@ -81,11 +80,8 @@ async def closeClient(client: Client) -> None:
 
 async def download(client: Client, current: Snapshot) -> Path:
     transfer = transferByHash(current)
-    target = DOWNLOAD_DIR / FILE_NAME
 
     if transfer is None:
-        if target.exists():
-            raise RuntimeError(f"{target} exists without durable transfer state")
         requireSpace(FILE_SIZE)
         transfer = await client.addLink(LINK, DOWNLOAD_DIR)
     else:

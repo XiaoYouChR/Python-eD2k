@@ -195,8 +195,13 @@ func (d *Daemon) addLink(raw json.RawMessage) (transfer, error) {
 			conflicts = strings.EqualFold(existingPath, targetPath)
 		}
 		if conflicts {
-			return transfer{}, fail(codeTransferExists, errors.New("output path already in use"))
+			return transfer{}, fail(codeOutputExists, errors.New("output path already in use"))
 		}
+	}
+	if _, err := os.Stat(targetPath); err == nil {
+		return transfer{}, fail(codeOutputExists, errors.New("output path already exists"))
+	} else if !os.IsNotExist(err) {
+		return transfer{}, fmt.Errorf("inspect output path: %w", err)
 	}
 	if _, _, err := d.client.AddLink(params.Link, outputDir); err != nil {
 		return transfer{}, err

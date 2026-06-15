@@ -35,6 +35,9 @@ of changes. Slow consumers may skip older snapshots.
 One eD2k download identified by its file hash. Product metadata such as
 category, queue position, and UI text does not belong to a Transfer.
 
+The Sidecar owns Transfer admission. Adding a Transfer rejects duplicate hashes,
+paths already used by another Transfer, and existing output files.
+
 ## Durable State
 
 Protocol state owned and persisted by `goed2k`. The caller chooses its parent
