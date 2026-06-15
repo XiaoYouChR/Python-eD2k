@@ -27,6 +27,17 @@ python -m unittest tests.test_client -v
 
 On Linux or macOS, build the executable as `goed2kd`.
 
+## Run the example
+
+```powershell
+python main.py
+```
+
+The example builds a missing sidecar, uses hard-coded Server and Kad bootstrap
+sources, and downloads the example Windows ISO into `downloads/`. Protocol
+state is stored in `data/`, so rerunning the script resumes the same transfer.
+Press `Ctrl+C` to save state and stop.
+
 ## Use
 
 ```python

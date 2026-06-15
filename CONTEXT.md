@@ -21,8 +21,9 @@ The Sidecar does not know the caller's task model or user interface.
 ## Settings
 
 The small, supported subset of engine startup settings. The caller chooses
-bootstrap sources and ports. The Sidecar decides how connections are
-maintained.
+bootstrap source strings and ports. A bootstrap source is an opaque local path,
+URL, or eD2k source understood by `goed2k`; Python does not parse or fetch it.
+The Sidecar decides how connections are maintained.
 
 ## Snapshot
 

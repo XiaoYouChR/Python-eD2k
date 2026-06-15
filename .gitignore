@@ -1,8 +1,11 @@
 /.venv/
+/.idea/
 /.cache/
 /build/
 /dist/
 /*.egg-info/
+/data/
+/downloads/
 /goed2kd
 /goed2kd.exe
 /__pycache__/

@@ -14,9 +14,9 @@ class TransferState(StrEnum):
 @dataclass(frozen=True, slots=True)
 class Settings:
     servers: tuple[str, ...] = ()
-    serverMet: Path | None = None
+    serverMetSource: str | None = None
     dhtNodes: tuple[str, ...] = ()
-    nodesDat: Path | None = None
+    nodesDatSource: str | None = None
     listenPort: int = 0
     udpPort: int = 0
     enableDht: bool = True

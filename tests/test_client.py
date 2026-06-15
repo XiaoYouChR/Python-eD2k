@@ -113,3 +113,37 @@ class ClientTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(restarted.transfers, ())
 
             await asyncio.wait_for(client.close(), timeout=5)
+
+    async def test_bootstrap_source_preserves_an_http_url(self) -> None:
+        source = "http://127.0.0.1:1/server.met"
+        with tempfile.TemporaryDirectory() as dataDir:
+            client = Client(SIDECAR, Path(dataDir))
+            self.addAsyncCleanup(client.terminate)
+
+            with self.assertRaises(Error) as raised:
+                await client.start(
+                    Settings(
+                        serverMetSource=source,
+                        enableDht=False,
+                        enableUpnp=False,
+                    )
+                )
+
+            self.assertIn(source, str(raised.exception))
+
+    async def test_dht_bootstrap_source_preserves_an_http_url(self) -> None:
+        source = "http://127.0.0.1:1/nodes.dat"
+        with tempfile.TemporaryDirectory() as dataDir:
+            client = Client(SIDECAR, Path(dataDir))
+            self.addAsyncCleanup(client.terminate)
+
+            with self.assertRaises(Error) as raised:
+                await client.start(
+                    Settings(
+                        nodesDatSource=source,
+                        enableDht=False,
+                        enableUpnp=False,
+                    )
+                )
+
+            self.assertIn(source, str(raised.exception))

@@ -132,8 +132,8 @@ func (d *Daemon) start(raw json.RawMessage) (snapshot, error) {
 }
 
 func (d *Daemon) bootstrap(config settings) error {
-	if config.ServerMet != "" {
-		if err := d.client.ConnectServerMet(config.ServerMet); err != nil {
+	if config.ServerMetSource != "" {
+		if err := d.client.ConnectServerMet(config.ServerMetSource); err != nil {
 			return fmt.Errorf("connect server.met: %w", err)
 		}
 	}
@@ -142,8 +142,8 @@ func (d *Daemon) bootstrap(config settings) error {
 			return fmt.Errorf("connect servers: %w", err)
 		}
 	}
-	if config.NodesDat != "" {
-		if err := d.client.LoadDHTNodesDat(config.NodesDat); err != nil {
+	if config.NodesDatSource != "" {
+		if err := d.client.LoadDHTNodesDat(config.NodesDatSource); err != nil {
 			return fmt.Errorf("load nodes.dat: %w", err)
 		}
 	}

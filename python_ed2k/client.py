@@ -262,9 +262,9 @@ def _toSnapshot(value: Any) -> Snapshot:
 def _toSettings(settings: Settings) -> dict[str, Any]:
     return {
         "servers": settings.servers,
-        "serverMet": str(settings.serverMet) if settings.serverMet is not None else "",
+        "serverMetSource": settings.serverMetSource or "",
         "dhtNodes": settings.dhtNodes,
-        "nodesDat": str(settings.nodesDat) if settings.nodesDat is not None else "",
+        "nodesDatSource": settings.nodesDatSource or "",
         "listenPort": settings.listenPort,
         "udpPort": settings.udpPort,
         "enableDht": settings.enableDht,

@@ -68,9 +68,9 @@ type removeParams struct {
 
 type settings struct {
 	Servers           []string `json:"servers"`
-	ServerMet         string   `json:"serverMet"`
+	ServerMetSource   string   `json:"serverMetSource"`
 	DHTNodes          []string `json:"dhtNodes"`
-	NodesDat          string   `json:"nodesDat"`
+	NodesDatSource    string   `json:"nodesDatSource"`
 	ListenPort        int      `json:"listenPort"`
 	UDPPort           int      `json:"udpPort"`
 	EnableDHT         bool     `json:"enableDht"`
