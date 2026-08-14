@@ -66,3 +66,48 @@ jobs:
         with:
           files: goed2kd-*
           generate_release_notes: true
+
+      - name: Mirror to GitCode
+        continue-on-error: true
+        env:
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+        run: |
+          if [ -z "$GITCODE_TOKEN" ]; then echo "No GITCODE_TOKEN, skipping mirror"; exit 0; fi
+
+          API="https://api.gitcode.com/api/v5"
+          REPO="XiaoYouChR/Python-eD2k"
+          TAG="${{ github.ref_name }}"
+          AUTH="access_token=${GITCODE_TOKEN}"
+
+          RELEASE=$(curl -f "${API}/repos/${REPO}/releases/tags/${TAG}?${AUTH}" || echo "")
+          if [ -z "$RELEASE" ]; then
+            curl -f -X POST "${API}/repos/${REPO}/releases?${AUTH}" \
+              -H "Content-Type: application/json" \
+              -d "{\"tag_name\":\"${TAG}\",\"name\":\"${TAG}\",\"body\":\"${TAG}\"}"
+          fi
+
+          curl -f -X PATCH "${API}/repos/${REPO}/releases/${TAG}?${AUTH}" \
+            -H "Content-Type: application/json" \
+            -d '{"release_status":"latest"}'
+
+          upload_file() {
+            local file="$1"
+            local name=$(basename "$file")
+            local upload_info=$(curl -f "${API}/repos/${REPO}/releases/${TAG}/upload_url?${AUTH}&file_name=${name}")
+            local url=$(echo "$upload_info" | jq -r '.url')
+            local content_type=$(echo "$upload_info" | jq -r '.headers["Content-Type"]')
+            local meta_project=$(echo "$upload_info" | jq -r '.headers["x-obs-meta-project-id"]')
+            local obs_acl=$(echo "$upload_info" | jq -r '.headers["x-obs-acl"]')
+            local obs_callback=$(echo "$upload_info" | jq -r '.headers["x-obs-callback"]')
+            curl -f -X PUT "$url" \
+              -H "Content-Type: ${content_type}" \
+              -H "x-obs-meta-project-id: ${meta_project}" \
+              -H "x-obs-acl: ${obs_acl}" \
+              -H "x-obs-callback: ${obs_callback}" \
+              --data-binary "@${file}"
+            echo "uploaded: $name"
+          }
+
+          for f in goed2kd-*; do
+            [ -f "$f" ] && upload_file "$f"
+          done
