@@ -58,6 +58,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
@@ -67,7 +71,16 @@ jobs:
           files: goed2kd-*
           generate_release_notes: true
 
-      - name: Mirror to GitCode
+      - name: Push to GitCode
+        continue-on-error: true
+        env:
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+        run: |
+          if [ -z "$GITCODE_TOKEN" ]; then echo "No GITCODE_TOKEN, skipping"; exit 0; fi
+          REMOTE="https://XiaoYouChR:${GITCODE_TOKEN}@gitcode.com/XiaoYouChR/Python-eD2k.git"
+          git push "$REMOTE" origin/main:refs/heads/main "${{ github.ref_name }}" 2>&1 | sed "s/${GITCODE_TOKEN}/****/g" || true
+
+      - name: Mirror release to GitCode
         continue-on-error: true
         env:
           GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
@@ -79,16 +92,14 @@ jobs:
           TAG="${{ github.ref_name }}"
           AUTH="access_token=${GITCODE_TOKEN}"
 
-          RELEASE=$(curl -f "${API}/repos/${REPO}/releases/tags/${TAG}?${AUTH}" || echo "")
-          if [ -z "$RELEASE" ]; then
-            curl -f -X POST "${API}/repos/${REPO}/releases?${AUTH}" \
-              -H "Content-Type: application/json" \
-              -d "{\"tag_name\":\"${TAG}\",\"name\":\"${TAG}\",\"body\":\"${TAG}\"}"
-          fi
+          curl -f -X POST "${API}/repos/${REPO}/releases?${AUTH}" \
+            -H "Content-Type: application/json" \
+            -d "{\"tag_name\":\"${TAG}\",\"name\":\"${TAG}\",\"body\":\"${TAG}\"}" \
+            2>/dev/null || echo "Release already exists"
 
           curl -f -X PATCH "${API}/repos/${REPO}/releases/${TAG}?${AUTH}" \
             -H "Content-Type: application/json" \
-            -d '{"release_status":"latest"}'
+            -d '{"release_status":"latest"}' || true
 
           upload_file() {
             local file="$1"
@@ -109,5 +120,5 @@ jobs:
           }
 
           for f in goed2kd-*; do
-            [ -f "$f" ] && upload_file "$f"
+            [ -f "$f" ] && { upload_file "$f" || echo "WARN: failed $f"; }
           done
