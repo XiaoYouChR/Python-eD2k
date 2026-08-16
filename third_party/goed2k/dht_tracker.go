@@ -443,7 +443,7 @@ func (t *DHTTracker) maybeSendHelloLocked(node *KadRoutingNode) {
 	node.HelloSent = true
 	t.writePacketLocked(node.Addr, kadproto.Hello{
 		ID:      t.selfID,
-		TCPPort: uint16(t.ListenPort()),
+		TCPPort: uint16(t.listenPort),
 		Version: kadproto.KademliaVersion,
 	}, kadproto.HelloReqOp)
 	t.rpc.Invoke(&kadRPCTransaction{endpointKey: node.Addr.String(), opcode: kadproto.HelloResOp})

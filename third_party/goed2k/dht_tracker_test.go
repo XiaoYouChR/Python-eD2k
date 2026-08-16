@@ -9,6 +9,37 @@ import (
 	kadproto "github.com/monkeyWie/goed2k/protocol/kad"
 )
 
+func TestMaybeSendHelloLockedDoesNotRelockTracker(t *testing.T) {
+	receiver, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer receiver.Close()
+	sender, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sender.Close()
+
+	tracker := NewDHTTracker(0, 0)
+	tracker.conn = sender
+	tracker.listenPort = sender.LocalAddr().(*net.UDPAddr).Port
+	node := &KadRoutingNode{Addr: receiver.LocalAddr().(*net.UDPAddr)}
+	done := make(chan struct{})
+	go func() {
+		tracker.mu.Lock()
+		tracker.maybeSendHelloLocked(node)
+		tracker.mu.Unlock()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("maybeSendHelloLocked deadlocked while the tracker mutex was held")
+	}
+}
+
 func TestDHTTrackerBootstrapResponseAddsContacts(t *testing.T) {
 	tracker := NewDHTTracker(0, 0)
 	addr, err := net.ResolveUDPAddr("udp", "1.2.3.4:4672")
