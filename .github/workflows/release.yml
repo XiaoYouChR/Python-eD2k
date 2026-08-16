@@ -120,5 +120,6 @@ jobs:
           }
 
           for f in goed2kd-*; do
-            [ -f "$f" ] && { upload_file "$f" || echo "WARN: failed $f"; }
+            [ -f "$f" ] && { upload_file "$f" || echo "WARN: failed $f"; } &
           done
+          wait
