@@ -131,10 +131,7 @@ func (t *DHTTracker) ApplyNodesDat(nodes *kadproto.NodesDat) error {
 	haveVerified := false
 	loaded := make([]*KadRoutingNode, 0, len(nodes.Contacts))
 	for _, entry := range nodes.Contacts {
-		addr := &net.UDPAddr{
-			IP:   net.IPv4(byte(entry.Endpoint.IP), byte(entry.Endpoint.IP>>8), byte(entry.Endpoint.IP>>16), byte(entry.Endpoint.IP>>24)),
-			Port: int(entry.Endpoint.UDPPort),
-		}
+		addr := udpAddrFromKad(entry.Endpoint)
 		node := t.addOrUpdateNodeLocked(entry.ID, addr, entry.Endpoint.TCPPort, entry.Version, true)
 		if node == nil {
 			continue
@@ -925,7 +922,7 @@ func normalizeUDPAddr(addr *net.UDPAddr) *net.UDPAddr {
 }
 
 func udpAddrFromKad(endpoint kadproto.Endpoint) *net.UDPAddr {
-	ip := net.IPv4(byte(endpoint.IP), byte(endpoint.IP>>8), byte(endpoint.IP>>16), byte(endpoint.IP>>24))
+	ip := net.IPv4(byte(endpoint.IP>>24), byte(endpoint.IP>>16), byte(endpoint.IP>>8), byte(endpoint.IP))
 	return &net.UDPAddr{IP: ip, Port: int(endpoint.UDPPort)}
 }
 
@@ -934,7 +931,7 @@ func protocolIP(ip net.IP) uint32 {
 	if len(ip4) != 4 {
 		return 0
 	}
-	return uint32(ip4[0]) | uint32(ip4[1])<<8 | uint32(ip4[2])<<16 | uint32(ip4[3])<<24
+	return uint32(ip4[0])<<24 | uint32(ip4[1])<<16 | uint32(ip4[2])<<8 | uint32(ip4[3])
 }
 
 func timeToMillis(value time.Time) int64 {

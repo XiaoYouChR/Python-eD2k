@@ -27,7 +27,7 @@ func TestSearchEntryExtractsSourceEndpoint(t *testing.T) {
 	entry := SearchEntry{
 		Tags: []Tag{
 			{ID: TagSourceType, UInt64: 1},
-			{ID: TagSourceIP, UInt64: uint64(uint32(0x0100007f))},
+			{ID: TagSourceIP, UInt64: uint64(uint32(0x7f000001))},
 			{ID: TagSourcePort, UInt64: 4662},
 		},
 	}
@@ -40,6 +40,17 @@ func TestSearchEntryExtractsSourceEndpoint(t *testing.T) {
 	}
 	if endpoint.String() != "127.0.0.1:4662" {
 		t.Fatalf("unexpected endpoint %s", endpoint.String())
+	}
+}
+
+func TestTagReadsStandardOneByteName(t *testing.T) {
+	raw := []byte{TagTypeUint32, 1, 0, TagSourceIP, 0x01, 0x00, 0x00, 0x7f}
+	var tag Tag
+	if err := tag.Get(bytes.NewReader(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if tag.ID != TagSourceIP || tag.UInt64 != 0x7f000001 {
+		t.Fatalf("decoded tag = id %#x value %#x", tag.ID, tag.UInt64)
 	}
 }
 

@@ -4,15 +4,17 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"math/bits"
 	"os"
 
 	"github.com/monkeyWie/goed2k/protocol"
 )
 
 const (
-	ProtocolHeader byte = 0xE4
-	SearchResOp    byte = 0x3B
-	SearchSrcReqOp byte = 0x34
+	ProtocolHeader       byte = 0xE4
+	PackedProtocolHeader byte = 0xE5
+	SearchResOp          byte = 0x3B
+	SearchSrcReqOp       byte = 0x34
 
 	TagTypeString byte = 0x02
 	TagTypeUint32 byte = 0x03
@@ -94,7 +96,7 @@ func (e Endpoint) Put(dst *bytes.Buffer) error {
 }
 
 func (e Endpoint) ED2K() protocol.Endpoint {
-	return protocol.NewEndpoint(int32(e.IP), int(e.TCPPort))
+	return protocol.NewEndpoint(int32(bits.ReverseBytes32(e.IP)), int(e.TCPPort))
 }
 
 type Entry struct {
@@ -132,6 +134,7 @@ func (e Entry) Put(dst *bytes.Buffer) error {
 type Tag struct {
 	Type   byte
 	ID     byte
+	Name   string
 	UInt64 uint64
 	String string
 }
@@ -142,14 +145,27 @@ func (t *Tag) Get(src *bytes.Reader) error {
 		return err
 	}
 	t.Type = tagType & 0x7f
-	if tagType&0x80 == 0 {
-		return errors.New("kad tag without id is unsupported")
+	if tagType&0x80 != 0 {
+		tagID, err := src.ReadByte()
+		if err != nil {
+			return err
+		}
+		t.ID = tagID
+	} else {
+		nameLength, err := protocol.ReadUInt16(src)
+		if err != nil {
+			return err
+		}
+		name, err := protocol.ReadBytes(src, int(nameLength))
+		if err != nil {
+			return err
+		}
+		if len(name) == 1 {
+			t.ID = name[0]
+		} else {
+			t.Name = string(name)
+		}
 	}
-	tagID, err := src.ReadByte()
-	if err != nil {
-		return err
-	}
-	t.ID = tagID
 	switch t.Type {
 	case TagTypeUint8:
 		value, err := src.ReadByte()
@@ -297,7 +313,7 @@ func (s SearchEntry) SourceEndpoint() (protocol.Endpoint, bool) {
 	if sourceType != 1 && sourceType != 4 && sourceType != 0 {
 		return protocol.Endpoint{}, false
 	}
-	return protocol.NewEndpoint(int32(uint32(ip)), int(port)), true
+	return protocol.NewEndpoint(int32(bits.ReverseBytes32(uint32(ip))), int(port)), true
 }
 
 type SearchSourcesReq struct {

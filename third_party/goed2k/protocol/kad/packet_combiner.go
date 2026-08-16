@@ -1,10 +1,39 @@
 package kad
 
-import "errors"
+import (
+	"bytes"
+	"compress/zlib"
+	"errors"
+	"io"
+)
+
+const maxUnpackedKadPayload = 1 << 20
 
 type PacketCombiner struct{}
 
 func (PacketCombiner) Unpack(packet []byte) (byte, any, error) {
+	if len(packet) >= 2 && packet[0] == PackedProtocolHeader {
+		reader, err := zlib.NewReader(bytes.NewReader(packet[2:]))
+		if err != nil {
+			return 0, nil, err
+		}
+		payload, readErr := io.ReadAll(io.LimitReader(reader, maxUnpackedKadPayload+1))
+		closeErr := reader.Close()
+		if readErr != nil {
+			return 0, nil, readErr
+		}
+		if closeErr != nil {
+			return 0, nil, closeErr
+		}
+		if len(payload) > maxUnpackedKadPayload {
+			return 0, nil, errors.New("unpacked Kad payload is too large")
+		}
+		msg, err := unpackByOpcode(packet[1], payload)
+		if err != nil {
+			return 0, nil, err
+		}
+		return packet[1], msg, nil
+	}
 	opcode, payload, err := DecodePacket(packet)
 	if err != nil {
 		return 0, nil, err

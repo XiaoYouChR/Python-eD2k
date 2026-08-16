@@ -1,10 +1,42 @@
 package kad
 
 import (
+	"bytes"
+	"compress/zlib"
 	"testing"
 
 	"github.com/monkeyWie/goed2k/protocol"
 )
+
+func TestPacketCombinerUnpacksCompressedPacket(t *testing.T) {
+	original, err := SearchRes{
+		Source: NewID(protocol.MustHashFromString("23A8CEFF57A7A32D562D649ED7893796")),
+		Target: NewID(protocol.MustHashFromString("31D6CFE0D16AE931B73C59D7E0C089C0")),
+	}.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compressed bytes.Buffer
+	writer := zlib.NewWriter(&compressed)
+	if _, err := writer.Write(original[2:]); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	packet := append([]byte{PackedProtocolHeader, SearchResOp}, compressed.Bytes()...)
+
+	opcode, message, err := (PacketCombiner{}).Unpack(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opcode != SearchResOp {
+		t.Fatalf("opcode = %#x, want %#x", opcode, SearchResOp)
+	}
+	if _, ok := message.(*SearchRes); !ok {
+		t.Fatalf("message type = %T, want *SearchRes", message)
+	}
+}
 
 func TestPacketCombinerRoundTripSearchSourcesReq(t *testing.T) {
 	combiner := PacketCombiner{}

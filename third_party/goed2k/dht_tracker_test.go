@@ -23,7 +23,7 @@ func TestDHTTrackerBootstrapResponseAddsContacts(t *testing.T) {
 			{
 				ID: kadproto.NewID(protocol.MustHashFromString("31D6CFE0D16AE931B73C59D7E0C089C0")),
 				Endpoint: kadproto.Endpoint{
-					IP:      0x0100007f,
+					IP:      0x7f000001,
 					UDPPort: 4672,
 					TCPPort: 4661,
 				},
@@ -49,7 +49,7 @@ func TestDHTTrackerFindResponseAddsDiscoveredNodes(t *testing.T) {
 			{
 				ID: kadproto.NewID(protocol.MustHashFromString("31D6CFE0D14CE931B73C59D7E0C04BC0")),
 				Endpoint: kadproto.Endpoint{
-					IP:      0x0100007f,
+					IP:      0x7f000001,
 					UDPPort: 4672,
 					TCPPort: 4661,
 				},
@@ -75,7 +75,7 @@ func TestDHTTrackerHandlePublishAndSearchSources(t *testing.T) {
 			ID: kadproto.NewID(protocol.MustHashFromString("31D6CFE0D16AE931B73C59D7E0C089C0")),
 			Tags: []kadproto.Tag{
 				{Type: kadproto.TagTypeUint8, ID: kadproto.TagSourceType, UInt64: 1},
-				{Type: kadproto.TagTypeUint32, ID: kadproto.TagSourceIP, UInt64: 0x0100007f},
+				{Type: kadproto.TagTypeUint32, ID: kadproto.TagSourceIP, UInt64: 0x7f000001},
 				{Type: kadproto.TagTypeUint16, ID: kadproto.TagSourcePort, UInt64: 4662},
 			},
 		},
@@ -87,6 +87,17 @@ func TestDHTTrackerHandlePublishAndSearchSources(t *testing.T) {
 	}
 	if endpoint, ok := results[0].SourceEndpoint(); !ok || endpoint.String() != "127.0.0.1:4662" {
 		t.Fatalf("unexpected indexed endpoint %v %v", endpoint, ok)
+	}
+}
+
+func TestKadEndpointUsesNetworkByteOrder(t *testing.T) {
+	endpoint := kadproto.Endpoint{IP: 0x73d9faf6, UDPPort: 4672}
+	addr := udpAddrFromKad(endpoint)
+	if got := addr.String(); got != "115.217.250.246:4672" {
+		t.Fatalf("kad endpoint = %s, want 115.217.250.246:4672", got)
+	}
+	if got := protocolIP(addr.IP); got != endpoint.IP {
+		t.Fatalf("kad IP round trip = %#x, want %#x", got, endpoint.IP)
 	}
 }
 
