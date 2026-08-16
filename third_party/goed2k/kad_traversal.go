@@ -4,6 +4,7 @@ import (
 	"net"
 	"sort"
 
+	"github.com/monkeyWie/goed2k/internal/logx"
 	"github.com/monkeyWie/goed2k/protocol"
 	kadproto "github.com/monkeyWie/goed2k/protocol/kad"
 )
@@ -102,6 +103,7 @@ type kadTraversal struct {
 	listener       func([]kadproto.SearchEntry)
 	accum          []kadproto.SearchEntry
 	externalIPs    []uint32
+	direct         *kadTraversal
 }
 
 func newKadTraversal(node *kadNodeImpl, target kadproto.ID, kind kadTraversalKind, size int64, listener func([]kadproto.SearchEntry)) *kadTraversal {
@@ -180,7 +182,6 @@ func (t *kadTraversal) newObserver(endpoint *net.UDPAddr, id kadproto.ID, portTC
 func (t *kadTraversal) addNode(endpoint *net.UDPAddr, id kadproto.ID, portTCP uint16, version byte) {
 	o := t.newObserver(endpoint, id, portTCP, version)
 	t.results = append(t.results, o)
-	t.numTargetNodes = len(t.results)
 }
 
 func (t *kadTraversal) addEntry(id kadproto.ID, endpoint *net.UDPAddr, flags int, portTCP uint16, version byte) {
@@ -242,17 +243,9 @@ func (t *kadTraversal) invoke(o *kadObserver) bool {
 	switch t.kind {
 	case kadTraversalBootstrap:
 		return t.node.invoke(kadproto.BootstrapReq{}, o.endpoint, o, kadproto.BootstrapResOp, nil, false)
-	case kadTraversalFindSources, kadTraversalRefresh:
-		searchType := kadproto.FindNode
+	case kadTraversalFindSources, kadTraversalFindKeywords, kadTraversalRefresh:
 		return t.node.invoke(kadproto.Req{
-			SearchType: searchType,
-			Target:     t.target,
-			Receiver:   o.id,
-		}, o.endpoint, o, kadproto.ResOp, &t.target.Hash, false)
-	case kadTraversalFindKeywords:
-		searchType := kadproto.FindValue
-		return t.node.invoke(kadproto.Req{
-			SearchType: searchType,
+			SearchType: kadFindRequestType(t.kind),
 			Target:     t.target,
 			Receiver:   o.id,
 		}, o.endpoint, o, kadproto.ResOp, &t.target.Hash, false)
@@ -267,14 +260,23 @@ func (t *kadTraversal) invoke(o *kadObserver) bool {
 			Target:   t.target,
 			StartPos: 0,
 		}, o.endpoint, o, kadproto.SearchResOp, &t.target.Hash, true)
-		case kadTraversalFirewalled:
-			return t.node.invoke(kadproto.FirewalledReq{
-				TCPPort: uint16(t.node.listenPort()),
-				ID:      t.target,
-				Options: 0,
-			}, o.endpoint, o, kadproto.FirewalledResOp, nil, false)
+	case kadTraversalFirewalled:
+		return t.node.invoke(kadproto.FirewalledReq{
+			TCPPort: uint16(t.node.listenPort()),
+			ID:      t.target,
+			Options: 0,
+		}, o.endpoint, o, kadproto.FirewalledResOp, nil, false)
 	default:
 		return false
+	}
+}
+
+func kadFindRequestType(kind kadTraversalKind) byte {
+	switch kind {
+	case kadTraversalFindSources, kadTraversalFindKeywords:
+		return kadproto.FindValue
+	default:
+		return kadproto.FindNode
 	}
 }
 
@@ -285,6 +287,7 @@ func (t *kadTraversal) failed(o *kadObserver, flags int) {
 	if flags&kadTraversalShortTimeout != 0 {
 		t.branchFactor++
 		o.flags |= kadObserverFlagShortTimeout
+		t.addRequests()
 		return
 	}
 	o.flags |= kadObserverFlagFailed
@@ -334,6 +337,8 @@ func (t *kadTraversal) finished(o *kadObserver) {
 		t.invokeCount--
 	}
 	switch t.kind {
+	case kadTraversalFindSources:
+		t.searchSourcesAt(o)
 	case kadTraversalSearchSources, kadTraversalSearchKeyword:
 		if len(o.entries) > 0 {
 			t.accum = append(t.accum, o.entries...)
@@ -347,6 +352,38 @@ func (t *kadTraversal) finished(o *kadObserver) {
 	if t.invokeCount == 0 {
 		t.done()
 	}
+}
+
+func (t *kadTraversal) searchSourcesAt(o *kadObserver) {
+	if t == nil || t.node == nil || o == nil || o.endpoint == nil {
+		return
+	}
+	direct := t.direct
+	if direct == nil || t.node.running[direct.key()] != direct {
+		candidate := newKadTraversal(t.node, t.target, kadTraversalSearchSources, t.size, t.listener)
+		if running := t.node.running[candidate.key()]; running != nil {
+			direct = running
+			t.direct = running
+		} else {
+			direct = candidate
+		}
+	}
+	for _, existing := range direct.results {
+		if existing != nil && existing.endpoint != nil && existing.endpoint.String() == o.endpoint.String() {
+			return
+		}
+	}
+	logx.Debug("dht direct source query queued", "to", o.endpoint.String(), "version", o.version)
+	if t.node.running[direct.key()] != direct {
+		direct.addNode(o.endpoint, o.id, o.portTCP, o.version)
+		if direct.start() {
+			t.direct = direct
+		}
+		return
+	}
+	direct.addNode(o.endpoint, o.id, o.portTCP, o.version)
+	direct.numTargetNodes = len(direct.results)
+	direct.addRequests()
 }
 
 func (t *kadTraversal) traverse(endpoint *net.UDPAddr, id kadproto.ID, portTCP uint16, version byte) {
@@ -365,6 +402,14 @@ func (t *kadTraversal) done() {
 		return
 	}
 	t.node.removeTraversal(t)
+	logx.Debug("kad traversal complete",
+		"kind", t.kind,
+		"target", t.target.Hash.String(),
+		"responses", t.responses,
+		"timeouts", t.timeouts,
+		"nodes", len(t.results),
+		"entries", len(t.accum),
+	)
 	switch t.kind {
 	case kadTraversalBootstrap:
 		for _, o := range t.results {
@@ -374,17 +419,9 @@ func (t *kadTraversal) done() {
 			t.node.addNode(o.endpoint, o.id, o.portTCP, o.version)
 		}
 	case kadTraversalFindSources:
-		direct := newKadTraversal(t.node, t.target, kadTraversalSearchSources, t.size, t.listener)
 		if sp := t.node.storagePoint(); sp != nil {
-			direct.addNode(sp, t.target, 0, 0)
+			t.searchSourcesAt(t.newObserver(sp, t.target, 0, 0))
 		}
-		for _, o := range t.results {
-			if o == nil || o.flags&kadObserverFlagFailed != 0 {
-				continue
-			}
-			direct.addNode(o.endpoint, o.id, o.portTCP, o.version)
-		}
-		_ = direct.start()
 	case kadTraversalFindKeywords:
 		direct := newKadTraversal(t.node, t.target, kadTraversalSearchKeyword, 0, t.listener)
 		if sp := t.node.storagePoint(); sp != nil {

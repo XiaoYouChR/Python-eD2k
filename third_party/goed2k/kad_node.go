@@ -4,6 +4,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/monkeyWie/goed2k/internal/logx"
 	"github.com/monkeyWie/goed2k/protocol"
 	kadproto "github.com/monkeyWie/goed2k/protocol/kad"
 )
@@ -46,6 +47,7 @@ func (n *kadNodeImpl) addTraversal(t *kadTraversal) bool {
 	}
 	key := t.key()
 	if _, exists := n.running[key]; exists {
+		logx.Debug("kad traversal already running", "kind", t.kind, "target", t.target.Hash.String())
 		return false
 	}
 	n.running[key] = t
@@ -133,7 +135,9 @@ func (n *kadNodeImpl) invoke(packet any, addr *net.UDPAddr, observer *kadObserve
 	if n == nil || n.tracker == nil || addr == nil {
 		return false
 	}
-	if _, err := n.tracker.writePacket(addr, packet); err != nil {
+	_, err := n.tracker.writePacket(addr, packet)
+	if err != nil {
+		logx.Debug("dht request send failed", "to", addr.String(), "err", err)
 		return false
 	}
 	n.tracker.rpc.Invoke(&kadRPCTransaction{
@@ -248,6 +252,15 @@ func (n *kadNodeImpl) processFindRes(addr *net.UDPAddr, res kadproto.Res) {
 	}
 	target := res.Target.Hash
 	tx := n.tracker.rpc.Incoming(addr, kadproto.ResOp, &target)
+	observerKind := kadTraversalKind("")
+	observerFlags := 0
+	if tx != nil && tx.observer != nil {
+		observerFlags = tx.observer.flags
+		if tx.observer.traversal != nil {
+			observerKind = tx.observer.traversal.kind
+		}
+	}
+	logx.Debug("dht find response", "from", addr.String(), "target", target.String(), "nodes", len(res.Results), "matched", tx != nil, "observer", tx != nil && tx.observer != nil, "kind", observerKind, "flags", observerFlags)
 	n.tracker.handleFindResponse(addr, res)
 	if tx == nil || tx.observer == nil {
 		return
@@ -367,6 +380,7 @@ func (n *kadNodeImpl) processSearchRes(addr *net.UDPAddr, res kadproto.SearchRes
 	}
 	target := res.Target.Hash
 	tx := n.tracker.rpc.Incoming(addr, kadproto.SearchResOp, &target)
+	logx.Debug("dht search response", "from", addr.String(), "target", target.String(), "entries", len(res.Results), "matched", tx != nil)
 	if tx == nil || tx.observer == nil {
 		return
 	}

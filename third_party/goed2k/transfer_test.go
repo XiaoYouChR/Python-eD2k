@@ -133,6 +133,9 @@ func TestTransferRequestsSourcesSoonWhenNoActivePeersRemain(t *testing.T) {
 	if transfer.nextDHTRequest-now > Seconds(10) {
 		t.Fatalf("expected next DHT retry within 10s, got %dms", transfer.nextDHTRequest-now)
 	}
+	if transfer.nextDHTRequest <= now {
+		t.Fatalf("expected next DHT retry to remain in the future, got %dms", transfer.nextDHTRequest-now)
+	}
 }
 
 func TestSessionPumpIOHandlesServerDisconnectCleanup(t *testing.T) {

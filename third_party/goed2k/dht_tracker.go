@@ -171,8 +171,13 @@ func (t *DHTTracker) SearchSources(hash protocol.Hash, size int64, cb func([]kad
 		return false
 	}
 	t.mu.Unlock()
-	logx.Debug("dht source search started", "hash", hash.String(), "size", size)
-	return t.node.searchSources(hash, size, cb)
+	started := t.node.searchSources(hash, size, cb)
+	if started {
+		logx.Debug("dht source search started", "hash", hash.String(), "size", size)
+	} else {
+		logx.Debug("dht source search skipped: request already running", "hash", hash.String())
+	}
+	return started
 }
 
 func (t *DHTTracker) readLoop() {
@@ -201,6 +206,16 @@ func (t *DHTTracker) readLoop() {
 		addr = normalizeUDPAddr(addr)
 		opcode, message, err := t.combiner.Unpack(buffer[:n])
 		if err != nil {
+			header := byte(0)
+			opcode := byte(0)
+			if n > 0 {
+				header = buffer[0]
+			}
+			if n > 1 {
+				opcode = buffer[1]
+			}
+			logx.Debug("dht packet ignored", "from", addr.String(), "bytes", n, "header", header, "opcode", opcode, "err", err)
+			t.node.tick()
 			continue
 		}
 		switch opcode {
@@ -248,8 +263,11 @@ func (t *DHTTracker) readLoop() {
 		case kadproto.SearchNotesReqOp:
 			t.node.processSearchNotesReq(addr, *(message.(*kadproto.SearchNotesReq)))
 		case kadproto.SearchNotesResOp, kadproto.HelloResAckOp, kadproto.PublishResAckOp, kadproto.CallbackReqOp, kadproto.FindBuddyReqOp, kadproto.FindBuddyResOp:
-			continue
 		}
+		// A steady stream of Kad traffic can prevent the read deadline from
+		// firing. Advance RPC timers after packets too so stalled requests still
+		// expire and traversals continue while the socket is busy.
+		t.node.tick()
 	}
 }
 

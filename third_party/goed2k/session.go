@@ -279,20 +279,25 @@ func (s *Session) SendDHTSourcesRequest(hash protocol.Hash, size int64, transfer
 		return false
 	}
 	return s.dhtTracker.SearchSources(hash, size, func(results []kadproto.SearchEntry) {
-		logx.Debug("dht source search result", "hash", hash.String(), "results", len(results))
 		s.mu.Lock()
 		current := s.transfers[hash]
 		s.mu.Unlock()
 		if current == nil || current != transfer {
 			return
 		}
+		accepted := 0
+		sourceTypes := make(map[uint64]int)
 		for _, entry := range results {
+			sourceType, _ := entry.UIntTag(kadproto.TagSourceType)
+			sourceTypes[sourceType]++
 			endpoint, ok := entry.SourceEndpoint()
 			if !ok || !endpoint.Defined() {
 				continue
 			}
 			_ = current.AddPeer(endpoint, int(PeerDHT))
+			accepted++
 		}
+		logx.Debug("dht source search result", "hash", hash.String(), "results", len(results), "accepted", accepted, "source_types", sourceTypes)
 	})
 }
 

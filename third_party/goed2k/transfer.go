@@ -654,7 +654,7 @@ func (t *Transfer) SecondTick(accumulator *Statistics, tickIntervalMS int64) {
 			t.nextSourcesRequest = now
 		}
 		if activeConnections <= 1 && connectCandidates <= 1 && t.nextDHTRequest > now+Seconds(10) {
-			t.nextDHTRequest = now
+			t.nextDHTRequest = now + Seconds(10)
 		}
 		if t.nextSourcesRequest <= now {
 			sent := t.session.SendSourcesRequest(t.hash, t.size)
