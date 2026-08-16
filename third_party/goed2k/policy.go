@@ -171,7 +171,7 @@ func (p *Policy) FindConnectCandidate(sessionTime int64) *Peer {
 		if candidate != -1 && p.ComparePeers(p.peers[candidate], pe) {
 			continue
 		}
-		if pe.NextConnection != 0 && pe.NextConnection < sessionTime {
+		if pe.NextConnection != 0 && sessionTime < pe.NextConnection {
 			continue
 		}
 		if pe.LastConnected != 0 && (sessionTime < pe.LastConnected+Seconds(int64(pe.FailCount+1))*MinReconnectTimeout) {

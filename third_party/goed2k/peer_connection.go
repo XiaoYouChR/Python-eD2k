@@ -819,6 +819,17 @@ func (p *PeerConnection) HandleFileAnswer(value *clientproto.FileAnswer) {
 }
 
 func (p *PeerConnection) HandleFileStatusAnswer(value *clientproto.FileStatusAnswer) {
+	if value == nil {
+		return
+	}
+	p.remotePieces = value.BitField
+	// ED2K uses a zero-length part map as the compact representation for a
+	// complete source. Normalize it here so later availability decisions do
+	// not have to treat an empty map as both "unknown" and "has everything".
+	if p.remotePieces.Len() == 0 && p.transfer != nil {
+		p.remotePieces.Resize(p.transfer.picker.NumPieces())
+		p.remotePieces.SetAll()
+	}
 	debugPeerf("peer %s <- FileStatusAnswer pieces=%d have=%d first0=%t first1=%t first2=%t",
 		p.endpoint.String(),
 		p.remotePieces.Len(),
@@ -863,7 +874,6 @@ func (p *PeerConnection) ProcessIncoming() error {
 		case *clientproto.FileStatusRequest:
 			p.HandleClientFileStatusRequest(value)
 		case *clientproto.FileStatusAnswer:
-			p.remotePieces = value.BitField
 			p.HandleFileStatusAnswer(value)
 		case *clientproto.HashSetRequest:
 			p.HandleClientHashSetRequest(value)
