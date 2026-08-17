@@ -930,7 +930,11 @@ func (p *PeerConnection) HandleFileStatusAnswer(value *clientproto.FileStatusAns
 		p.SendSourceExchangeRequest(p.transfer.GetHash())
 	}
 	if p.transfer != nil && p.transfer.Size() > 9728000 {
-		p.SendHashSetRequest(p.transfer.GetHash())
+		if len(p.transfer.UploadHashSet()) == 0 {
+			p.SendHashSetRequest(p.transfer.GetHash())
+		} else {
+			p.SendStartUpload(p.transfer.GetHash())
+		}
 	} else if p.transfer != nil {
 		if p.transfer.GetHash().Equal(value.Hash) {
 			p.transfer.SetHashSet(value.Hash, []protocol.Hash{value.Hash})
