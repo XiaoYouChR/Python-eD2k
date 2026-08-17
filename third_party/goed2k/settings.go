@@ -58,7 +58,7 @@ func NewSettings() Settings {
 		MaxFailCount:            20,
 		MaxPeerListSize:         100,
 		MinPeerReconnectTime:    10,
-		PeerConnectionTimeout:   5,
+		PeerConnectionTimeout:   40,
 		SessionConnectionsLimit: 20,
 		UploadSlots:             3,
 		MaxUploadRateKB:         0,

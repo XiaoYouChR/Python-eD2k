@@ -47,6 +47,23 @@ type testDiskCallableWithCompletion struct {
 	onCompleted func()
 }
 
+type testBlockingDiskCallable struct {
+	transfer    *Transfer
+	started     chan struct{}
+	release     chan struct{}
+	onCompleted func()
+}
+
+func (t testBlockingDiskCallable) Transfer() *Transfer {
+	return t.transfer
+}
+
+func (t testBlockingDiskCallable) Call() AsyncOperationResult {
+	close(t.started)
+	<-t.release
+	return testDiskResult{onCompleted: t.onCompleted}
+}
+
 func (t testDiskCallableWithCompletion) Transfer() *Transfer {
 	return t.transfer
 }
@@ -110,6 +127,42 @@ func TestTransferStatsDropRateAfterPeerDisconnect(t *testing.T) {
 	}
 	if transfer.policy.NumConnectCandidates() != 1 {
 		t.Fatalf("expected peer to be reconnectable after disconnect, got %d candidates", transfer.policy.NumConnectCandidates())
+	}
+}
+
+func TestTransferDownloadRateExcludesControlTraffic(t *testing.T) {
+	session, transfer := newTestTransfer(t)
+	endpoint, err := protocol.EndpointFromString("1.2.3.4", 4662)
+	if err != nil {
+		t.Fatalf("endpoint: %v", err)
+	}
+	connection := NewPeerConnection(session, endpoint, transfer, nil)
+	transfer.connections = append(transfer.connections, connection)
+
+	connection.stat.ReceiveBytes(500, 0)
+	transfer.SecondTick(nil, 1000)
+	status := transfer.GetStatus()
+	if status.DownloadRate != 0 {
+		t.Fatalf("expected control-only traffic to report 0 B/s, got %d", status.DownloadRate)
+	}
+
+	connection.stat.ReceiveBytes(100, 900)
+	transfer.SecondTick(nil, 1000)
+	status = transfer.GetStatus()
+	if status.DownloadRate <= 0 {
+		t.Fatalf("expected payload traffic to report a positive rate, got %d", status.DownloadRate)
+	}
+}
+
+func TestStatisticsReclassifiesReceivedPayload(t *testing.T) {
+	stats := NewStatistics()
+	stats.ReceiveBytes(1000, 0)
+	stats.ReclassifyReceivedPayload(900)
+	if got := stats.TotalProtocolDownload(); got != 100 {
+		t.Fatalf("expected 100 protocol bytes, got %d", got)
+	}
+	if got := stats.TotalPayloadDownload(); got != 900 {
+		t.Fatalf("expected 900 payload bytes, got %d", got)
 	}
 }
 
@@ -411,6 +464,7 @@ func TestPeerDisconnectReturnsRequestedBlocksToPicker(t *testing.T) {
 
 func TestPeerConnectionClosesOnStalledPendingRequest(t *testing.T) {
 	session, transfer := newTestTransfer(t)
+	session.settings.PeerConnectionTimeout = 5
 
 	endpoint, err := protocol.EndpointFromString("1.2.3.4", 4662)
 	if err != nil {
@@ -436,6 +490,47 @@ func TestPeerConnectionClosesOnStalledPendingRequest(t *testing.T) {
 
 	if !conn.IsDisconnecting() {
 		t.Fatal("expected stalled pending request to close connection")
+	}
+}
+
+func TestPeerQueueRankingKeepsConnectionAndDelaysReaskAfterDisconnect(t *testing.T) {
+	session, transfer := newTestTransfer(t)
+	endpoint, err := protocol.EndpointFromString("1.2.3.4", 4662)
+	if err != nil {
+		t.Fatalf("endpoint: %v", err)
+	}
+	if err := transfer.AddPeer(endpoint, int(PeerDHT)); err != nil {
+		t.Fatalf("add peer: %v", err)
+	}
+	peer := transfer.policy.FindPeer(endpoint)
+	if peer == nil {
+		t.Fatal("peer not found")
+	}
+	connection := NewPeerConnection(session, endpoint, transfer, peer)
+	transfer.connections = append(transfer.connections, connection)
+	session.connections = append(session.connections, connection)
+	transfer.policy.SetConnection(peer, connection)
+
+	connection.SetRemoteQueueRank(42)
+	if connection.IsDisconnecting() {
+		t.Fatal("queue ranking must not disconnect a usable source")
+	}
+	if got := connection.RemoteQueueRank(); got != 42 {
+		t.Fatalf("expected remote queue rank 42, got %d", got)
+	}
+
+	now := CurrentTime()
+	connection.Close(ConnectionTimeout)
+	connection.OnDisconnect(ConnectionTimeout)
+	peer = transfer.policy.FindPeer(endpoint)
+	if peer == nil {
+		t.Fatal("queued peer was removed")
+	}
+	if peer.FailCount != 0 {
+		t.Fatalf("queued peer timeout must not count as a failed source, got %d", peer.FailCount)
+	}
+	if peer.NextConnection < now+Minutes(10) {
+		t.Fatalf("expected queued source reask delay, got %dms", peer.NextConnection-now)
 	}
 }
 
@@ -531,6 +626,68 @@ func TestSessionProcessDiskTasksAllowsCompletionToQueueFollowup(t *testing.T) {
 	}
 
 	t.Fatalf("expected follow-up disk task to complete, got completed=%d tasks=%d", completed.Load(), session.diskTaskCount())
+}
+
+func TestSessionDiskWorkerRunsQueuedTasksWithoutTickPacing(t *testing.T) {
+	session, transfer := newTestTransfer(t)
+	var called atomic.Int32
+	for i := 0; i < 8; i++ {
+		session.SubmitDiskTask(testDiskCallable{
+			transfer: transfer,
+			call:     func() { called.Add(1) },
+		})
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for called.Load() != 8 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if got := called.Load(); got != 8 {
+		t.Fatalf("expected disk worker to run all queued calls continuously, got %d", got)
+	}
+
+	for session.diskTaskCount() != 0 && time.Now().Before(deadline) {
+		session.processDiskTasks()
+		time.Sleep(time.Millisecond)
+	}
+	if got := session.diskTaskCount(); got != 0 {
+		t.Fatalf("expected completed disk tasks to be drained, got %d", got)
+	}
+}
+
+func TestSessionRemoveDiskTaskSuppressesRunningCompletion(t *testing.T) {
+	session, transfer := newTestTransfer(t)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var completed atomic.Int32
+	session.SubmitDiskTask(testBlockingDiskCallable{
+		transfer: transfer,
+		started:  started,
+		release:  release,
+		onCompleted: func() {
+			completed.Add(1)
+		},
+	})
+	<-started
+	session.RemoveDiskTask(transfer)
+	close(release)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		session.diskMu.Lock()
+		running := session.diskWorkerRunning
+		session.diskMu.Unlock()
+		if !running {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if got := session.diskTaskCount(); got != 0 {
+		t.Fatalf("expected cancelled running task to leave the queue, got %d", got)
+	}
+	session.processDiskTasks()
+	if got := completed.Load(); got != 0 {
+		t.Fatalf("expected cancelled task completion to be suppressed, got %d", got)
+	}
 }
 
 func TestPeerContinueBufferedIncomingStopsOnIncompleteFrame(t *testing.T) {

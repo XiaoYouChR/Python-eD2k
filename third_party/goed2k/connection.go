@@ -2,14 +2,32 @@ package goed2k
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net"
+	"time"
 
 	"github.com/monkeyWie/goed2k/internal/logx"
 	"github.com/monkeyWie/goed2k/protocol"
 )
 
-const connectionIODeadlineNS = int64(5 * 1000 * 1000)
+const (
+	connectionIODeadline     = 250 * time.Microsecond
+	connectionDialTimeout    = 5 * time.Second
+	connectionReadBufferSize = 32 * 1024
+	connectionReadBudget     = 512 * 1024
+)
+
+type connectionDialResult struct {
+	socket net.Conn
+	err    error
+}
+
+type connectionDialFunc func(ctx context.Context, network, address string) (net.Conn, error)
+
+var defaultConnectionDialContext connectionDialFunc = func(ctx context.Context, network, address string) (net.Conn, error) {
+	return (&net.Dialer{}).DialContext(ctx, network, address)
+}
 
 type Connection struct {
 	socket        net.Conn
@@ -24,6 +42,10 @@ type Connection struct {
 	header        protocol.PacketHeader
 	headerBuffer  []byte
 	bodyBuffer    []byte
+	connecting    bool
+	dialCancel    context.CancelFunc
+	dialResult    <-chan connectionDialResult
+	dialContext   connectionDialFunc
 }
 
 type queuedPacket struct {
@@ -42,6 +64,7 @@ func NewConnection(session *Session) Connection {
 		incoming:     make([][]byte, 0),
 		headerBuffer: make([]byte, 0, protocol.PacketHeaderSize),
 		bodyBuffer:   nil,
+		dialContext:  defaultConnectionDialContext,
 	}
 }
 
@@ -49,47 +72,108 @@ func (c *Connection) DoRead() error {
 	if c.socket == nil {
 		return nil
 	}
-	tmp := make([]byte, 16*1024)
-	_ = c.socket.SetReadDeadline(CurrentTimeToDeadline(connectionIODeadlineNS))
-	n, err := c.socket.Read(tmp)
-	if err != nil {
-		if ne, ok := err.(net.Error); ok && ne.Timeout() {
+	tmp := make([]byte, connectionReadBufferSize)
+	_ = c.socket.SetReadDeadline(time.Now().Add(connectionIODeadline))
+	for received := 0; received < connectionReadBudget; {
+		n, err := c.socket.Read(tmp)
+		if n > 0 {
+			logx.Debug("socket read", "endpoint", c.Endpoint().String(), "bytes", n)
+			c.lastReceive = CurrentTime()
+			c.stat.ReceiveBytes(int64(n), 0)
+			c.incoming = append(c.incoming, bytes.Clone(tmp[:n]))
+			received += n
+		}
+		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				return nil
+			}
+			if err == io.EOF {
+				c.Close(EndOfStream)
+				return nil
+			}
+			c.Close(IOException)
+			return err
+		}
+		if n == 0 {
 			return nil
 		}
-		if err == io.EOF {
-			c.Close(EndOfStream)
-			return nil
-		}
-		c.Close(IOException)
-		return err
 	}
-	if n == 0 {
-		return nil
-	}
-	logx.Debug("socket read", "endpoint", c.Endpoint().String(), "bytes", n)
-	c.lastReceive = CurrentTime()
-	c.stat.ReceiveBytes(int64(n), 0)
-	c.incoming = append(c.incoming, bytes.Clone(tmp[:n]))
 	return nil
 }
 
 func (c *Connection) Connect(address net.Addr) error {
-	if tcpAddr, ok := address.(*net.TCPAddr); ok {
-		conn, err := net.DialTCP("tcp", nil, tcpAddr)
-		if err != nil {
-			c.Close(IOException)
-			return err
+	tcpAddr, ok := address.(*net.TCPAddr)
+	if !ok || tcpAddr == nil {
+		return NewError(IllegalArgument)
+	}
+	if c.socket != nil || c.connecting {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), connectionDialTimeout)
+	result := make(chan connectionDialResult)
+	c.connecting = true
+	c.dialCancel = cancel
+	c.dialResult = result
+	dial := c.dialContext
+	if dial == nil {
+		dial = defaultConnectionDialContext
+	}
+	go func() {
+		conn, err := dial(ctx, "tcp", tcpAddr.String())
+		select {
+		case result <- connectionDialResult{socket: conn, err: err}:
+		case <-ctx.Done():
+			if conn != nil {
+				_ = conn.Close()
+			}
 		}
-		c.socket = conn
+	}()
+	return nil
+}
+
+func (c *Connection) PollConnect() error {
+	if !c.connecting || c.dialResult == nil {
+		return nil
+	}
+	select {
+	case result := <-c.dialResult:
+		c.connecting = false
+		c.dialResult = nil
+		if c.dialCancel != nil {
+			c.dialCancel()
+			c.dialCancel = nil
+		}
+		if c.disconnecting {
+			if result.socket != nil {
+				_ = result.socket.Close()
+			}
+			return nil
+		}
+		if result.err != nil {
+			c.Close(IOException)
+			return result.err
+		}
+		c.socket = result.socket
 		c.lastReceive = CurrentTime()
+	default:
 	}
 	return nil
+}
+
+func (c *Connection) IsConnecting() bool {
+	return c.connecting
 }
 
 func (c *Connection) Close(ec BaseErrorCode) {
 	if c.disconnecting {
 		return
 	}
+	if c.dialCancel != nil {
+		c.dialCancel()
+		c.dialCancel = nil
+	}
+	c.connecting = false
+	c.dialResult = nil
 	if c.socket != nil {
 		_ = c.socket.Close()
 		c.socket = nil
@@ -298,7 +382,7 @@ func (c *Connection) FlushOutgoing() error {
 		return nil
 	}
 	packet := &c.outgoing[0]
-	_ = c.socket.SetWriteDeadline(CurrentTimeToDeadline(connectionIODeadlineNS))
+	_ = c.socket.SetWriteDeadline(time.Now().Add(connectionIODeadline))
 	n, err := c.socket.Write(packet.data)
 	if err != nil {
 		if ne, ok := err.(net.Error); ok && ne.Timeout() {

@@ -127,7 +127,11 @@ func NewAsyncRelease(transfer *Transfer, deleteFile bool) *AsyncRelease {
 }
 
 func (a *AsyncRelease) Call() AsyncOperationResult {
-	buffers, _ := a.transfer.GetPieceManager().ReleaseFile(a.DeleteFile)
+	manager := a.transfer.GetPieceManager()
+	if manager == nil {
+		return &AsyncReleaseResult{Transfer: a.transfer, DeleteFile: a.DeleteFile, EC: NoError}
+	}
+	buffers, _ := manager.ReleaseFile(a.DeleteFile)
 	return &AsyncReleaseResult{Transfer: a.transfer, Buffers: buffers, DeleteFile: a.DeleteFile, EC: NoError}
 }
 

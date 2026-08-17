@@ -32,6 +32,7 @@ type Session struct {
 	auxPort                int32
 	diskTasks              []*diskTask
 	diskResults            chan diskTaskResult
+	diskWorkerRunning      bool
 	listener               *net.TCPListener
 	incomingConns          chan net.Conn
 	dhtTracker             *DHTTracker
@@ -44,10 +45,11 @@ type Session struct {
 }
 
 type diskTask struct {
-	callable TransferCallable
-	transfer *Transfer
-	done     bool
-	running  bool
+	callable  TransferCallable
+	transfer  *Transfer
+	done      bool
+	running   bool
+	cancelled bool
 }
 
 type diskTaskResult struct {
@@ -445,6 +447,9 @@ func (s *Session) PumpIO() {
 		if sc == nil {
 			continue
 		}
+		if err := sc.PollConnect(); err != nil {
+			debugPeerf("server %s connect error: %v", sc.GetIdentifier(), err)
+		}
 		if sc.IsDisconnecting() {
 			if !sc.IsDisconnectHandled() {
 				sc.OnDisconnect(sc.DisconnectCode())
@@ -469,6 +474,9 @@ func (s *Session) PumpIO() {
 	for _, conn := range s.snapshotConnections() {
 		if conn == nil {
 			continue
+		}
+		if err := conn.PollConnect(); err != nil {
+			debugPeerf("peer %s connect error: %v", conn.Endpoint().String(), err)
 		}
 		if conn.IsDisconnecting() {
 			if !conn.IsDisconnectHandled() {
@@ -601,7 +609,14 @@ func (s *Session) SubmitDiskTask(task TransferCallable) {
 	entry := &diskTask{callable: task, transfer: task.Transfer()}
 	s.diskMu.Lock()
 	s.diskTasks = append(s.diskTasks, entry)
+	startWorker := !s.diskWorkerRunning
+	if startWorker {
+		s.diskWorkerRunning = true
+	}
 	s.diskMu.Unlock()
+	if startWorker {
+		go s.runDiskTasks()
+	}
 }
 
 func (s *Session) StartSearch(params SearchParams) (SearchHandle, error) {
@@ -788,6 +803,7 @@ func (s *Session) RemoveDiskTask(transfer *Transfer) {
 	dst := s.diskTasks[:0]
 	for _, task := range s.diskTasks {
 		if task.transfer == transfer {
+			task.cancelled = true
 			task.done = true
 			continue
 		}
@@ -797,33 +813,14 @@ func (s *Session) RemoveDiskTask(transfer *Transfer) {
 }
 
 func (s *Session) processDiskTasks() {
-	var nextTask *diskTask
-	s.diskMu.Lock()
-	for _, task := range s.diskTasks {
-		if task == nil || task.done {
-			continue
-		}
-		if !task.running {
-			task.running = true
-			nextTask = task
-		}
-		break
-	}
-	s.diskMu.Unlock()
-	if nextTask != nil {
-		go func(t *diskTask) {
-			res := t.callable.Call()
-			s.diskResults <- diskTaskResult{task: t, result: res}
-		}(nextTask)
-	}
 	for {
 		select {
 		case result := <-s.diskResults:
-			if result.task == nil || result.task.done {
+			if result.task == nil {
 				continue
 			}
 			s.diskMu.Lock()
-			result.task.done = true
+			cancelled := result.task.cancelled
 			dst := s.diskTasks[:0]
 			for _, task := range s.diskTasks {
 				if task != result.task {
@@ -832,11 +829,41 @@ func (s *Session) processDiskTasks() {
 			}
 			s.diskTasks = dst
 			s.diskMu.Unlock()
-			if result.result != nil {
+			if !cancelled && result.result != nil {
 				result.result.OnCompleted()
 			}
 		default:
 			return
+		}
+	}
+}
+
+func (s *Session) runDiskTasks() {
+	for {
+		var nextTask *diskTask
+		s.diskMu.Lock()
+		for _, task := range s.diskTasks {
+			if task == nil || task.done || task.cancelled || task.running {
+				continue
+			}
+			task.running = true
+			nextTask = task
+			break
+		}
+		if nextTask == nil {
+			s.diskWorkerRunning = false
+			s.diskMu.Unlock()
+			return
+		}
+		s.diskMu.Unlock()
+
+		result := nextTask.callable.Call()
+		s.diskMu.Lock()
+		nextTask.done = true
+		cancelled := nextTask.cancelled
+		s.diskMu.Unlock()
+		if !cancelled {
+			s.diskResults <- diskTaskResult{task: nextTask, result: result}
 		}
 	}
 }

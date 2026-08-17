@@ -51,6 +51,14 @@ func (s *Statistics) ReceiveBytes(protocolBytes, payloadBytes int64) {
 	s.channels[downloadPayload].Add(payloadBytes)
 }
 
+func (s *Statistics) ReclassifyReceivedPayload(count int64) {
+	if count <= 0 {
+		return
+	}
+	s.channels[downloadProtocol].Add(-count)
+	s.channels[downloadPayload].Add(count)
+}
+
 func (s *Statistics) SendBytes(protocolBytes, payloadBytes int64) {
 	s.channels[uploadProtocol].Add(protocolBytes)
 	s.channels[uploadPayload].Add(payloadBytes)

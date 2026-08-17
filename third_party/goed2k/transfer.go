@@ -260,7 +260,7 @@ func (t *Transfer) TryConnectPeer(sessionTime int64) (bool, error) {
 }
 
 func (t *Transfer) IsFinished() bool {
-	return t.numPieces == 0 || t.picker.NumHave() == t.picker.NumPieces()
+	return t.state == Finished || t.numPieces == 0 || t.picker.NumHave() == t.picker.NumPieces()
 }
 
 func (t *Transfer) ResumeData() *protocol.TransferResumeData {
@@ -360,7 +360,7 @@ func (t *Transfer) GetStatus() TransferStatus {
 
 	status := TransferStatus{
 		Paused:            t.pause,
-		DownloadRate:      int(t.stat.DownloadRate()),
+		DownloadRate:      int(t.stat.DownloadPayloadRate()),
 		Upload:            t.stat.TotalUpload(),
 		UploadRate:        int(t.stat.UploadRate()),
 		NumPeers:          t.policy.Size(),
@@ -676,7 +676,7 @@ func (t *Transfer) SecondTick(accumulator *Statistics, tickIntervalMS int64) {
 	if accumulator != nil {
 		accumulator.Add(t.stat)
 	}
-	t.speedMon.AddSample(t.stat.DownloadRate())
+	t.speedMon.AddSample(t.stat.DownloadPayloadRate())
 }
 
 func (t *Transfer) OnBlockWriteCompleted(block data.PieceBlock, _ [][]byte, ec BaseErrorCode) {

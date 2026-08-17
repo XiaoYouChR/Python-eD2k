@@ -134,30 +134,32 @@ func NewPendingBlock(block data.PieceBlock, totalSize int64) PendingBlock {
 
 type PeerConnection struct {
 	Connection
-	remotePeerInfo    RemotePeerInfo
-	remoteHash        protocol.Hash
-	transfer          *Transfer
-	remotePieces      protocol.BitField
-	speed             PeerSpeed
-	peerInfo          *Peer
-	failed            bool
-	transferringData  bool
-	recvReq           data.PeerRequest
-	recvReqCompressed bool
-	recvPos           int
-	endpoint          protocol.Endpoint
-	combiner          protocol.PacketCombiner
-	downloadQueue     []PendingBlock
-	uploadState       UploadState
-	uploadQueueRank   uint16
-	uploadWaitStart   int64
-	uploadStartTime   int64
-	uploadSessionBase int64
-	lastUploadRequest int64
-	uploadBlocks      []RequestedUploadBlock
-	uploadDone        []RequestedUploadBlock
-	uploadAddNext     bool
-	friendSlot        bool
+	remotePeerInfo         RemotePeerInfo
+	remoteHash             protocol.Hash
+	transfer               *Transfer
+	remotePieces           protocol.BitField
+	speed                  PeerSpeed
+	peerInfo               *Peer
+	failed                 bool
+	transferringData       bool
+	recvReq                data.PeerRequest
+	recvReqCompressed      bool
+	recvPos                int
+	endpoint               protocol.Endpoint
+	combiner               protocol.PacketCombiner
+	downloadQueue          []PendingBlock
+	uploadState            UploadState
+	uploadQueueRank        uint16
+	uploadWaitStart        int64
+	uploadStartTime        int64
+	uploadSessionBase      int64
+	lastUploadRequest      int64
+	uploadBlocks           []RequestedUploadBlock
+	uploadDone             []RequestedUploadBlock
+	uploadAddNext          bool
+	friendSlot             bool
+	remoteQueueRank        uint16
+	waitingForDownloadSlot bool
 }
 
 func NewPeerConnection(session *Session, point protocol.Endpoint, transfer *Transfer, peerInfo *Peer) *PeerConnection {
@@ -231,6 +233,9 @@ func (p *PeerConnection) SecondTick(tickIntervalMS int64) {
 		return
 	}
 	p.Connection.SecondTick(tickIntervalMS)
+	if p.IsConnecting() {
+		return
+	}
 	now := CurrentTime()
 	if now-p.lastReceive > int64(p.session.settings.PeerConnectionTimeout)*1000 {
 		p.Close(ConnectionTimeout)
@@ -262,6 +267,19 @@ func (p *PeerConnection) UploadQueueRank() uint16 {
 
 func (p *PeerConnection) SetUploadQueueRank(rank uint16) {
 	p.uploadQueueRank = rank
+}
+
+func (p *PeerConnection) SetRemoteQueueRank(rank uint16) {
+	p.remoteQueueRank = rank
+	p.waitingForDownloadSlot = true
+}
+
+func (p *PeerConnection) RemoteQueueRank() uint16 {
+	return p.remoteQueueRank
+}
+
+func (p *PeerConnection) WaitingForDownloadSlot() bool {
+	return p.waitingForDownloadSlot
 }
 
 func (p *PeerConnection) UploadWaitStart() int64 {
@@ -891,6 +909,8 @@ func (p *PeerConnection) ProcessIncoming() error {
 			}
 		case *clientproto.AcceptUpload:
 			debugPeerf("peer %s <- AcceptUpload", p.endpoint.String())
+			p.waitingForDownloadSlot = false
+			p.remoteQueueRank = 0
 			p.RequestBlocks()
 		case *clientproto.StartUpload:
 			p.HandleClientStartUpload(value)
@@ -905,8 +925,8 @@ func (p *PeerConnection) ProcessIncoming() error {
 		case *clientproto.CancelTransfer:
 			p.HandleClientCancelTransfer()
 		case *clientproto.QueueRanking:
-			debugPeerf("peer %s <- QueueRanking", p.endpoint.String())
-			p.Close(QueueRanking)
+			debugPeerf("peer %s <- QueueRanking rank=%d", p.endpoint.String(), value.Rank)
+			p.SetRemoteQueueRank(value.Rank)
 		case *clientproto.SendingPart32:
 			debugPeerf("peer %s <- SendingPart32 %d..%d", p.endpoint.String(), value.BeginOffset, value.EndOffset)
 			if req, err := data.MakePeerRequest(int64(value.BeginOffset), int64(value.EndOffset)); err == nil {
@@ -1111,6 +1131,7 @@ func (p *PeerConnection) ReceivePendingData() {
 	if len(payload) == 0 {
 		return
 	}
+	p.stat.ReclassifyReceivedPayload(int64(len(payload)))
 	p.session.Credits().AddDownloaded(p.remoteHash, int64(len(payload)))
 	offset := int(p.recvReq.InBlockOffset()) + p.recvPos
 	copy(pb.Buffer[offset:], payload)

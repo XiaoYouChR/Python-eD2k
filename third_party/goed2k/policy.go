@@ -215,6 +215,10 @@ func (p *Policy) ConnectionClosed(c *PeerConnection, sessionTime int64) {
 		return
 	}
 	peer.LastConnected = sessionTime
+	if c.WaitingForDownloadSlot() {
+		peer.NextConnection = sessionTime + Minutes(10)
+		return
+	}
 	if c.failed {
 		peer.FailCount++
 	}
