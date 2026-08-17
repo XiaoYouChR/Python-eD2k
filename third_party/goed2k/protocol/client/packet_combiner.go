@@ -25,6 +25,8 @@ const (
 	opSendingPart64     byte = 0xA2
 	opCompressedPart32  byte = 0x40
 	opCompressedPart64  byte = 0xA1
+	opRequestSources    byte = 0x81
+	opAnswerSources     byte = 0x82
 )
 
 func NewPacketCombiner() protocol.PacketCombiner {
@@ -65,5 +67,7 @@ func NewPacketCombiner() protocol.PacketCombiner {
 	pc.Register(protocol.PK(protocol.EMuleProt, opSendingPart64), "client.SendingPart64", func() protocol.Serializable { return &SendingPart64{} })
 	pc.Register(protocol.PK(protocol.EMuleProt, opCompressedPart32), "client.CompressedPart32", func() protocol.Serializable { return &CompressedPart32{} })
 	pc.Register(protocol.PK(protocol.EMuleProt, opCompressedPart64), "client.CompressedPart64", func() protocol.Serializable { return &CompressedPart64{} })
+	pc.Register(protocol.PK(protocol.EMuleProt, opRequestSources), "client.SourceExchangeRequest", func() protocol.Serializable { return &SourceExchangeRequest{} })
+	pc.Register(protocol.PK(protocol.EMuleProt, opAnswerSources), "client.SourceExchangeAnswer", func() protocol.Serializable { return &SourceExchangeAnswer{} })
 	return pc
 }

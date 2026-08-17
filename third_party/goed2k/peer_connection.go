@@ -5,6 +5,7 @@ import (
 	"compress/zlib"
 	"io"
 	"math"
+	"math/bits"
 	"net"
 	"path/filepath"
 
@@ -160,6 +161,7 @@ type PeerConnection struct {
 	friendSlot             bool
 	remoteQueueRank        uint16
 	waitingForDownloadSlot bool
+	sourceRequestSent      bool
 }
 
 func NewPeerConnection(session *Session, point protocol.Endpoint, transfer *Transfer, peerInfo *Peer) *PeerConnection {
@@ -352,13 +354,12 @@ func (p *PeerConnection) PrepareHelloAnswer() clientproto.HelloAnswer {
 	mo := MiscOptions{
 		UnicodeSupport:     1,
 		DataCompVer:        p.session.GetCompressionVersion(),
-		SourceExchange1Ver: 0,
+		SourceExchange1Ver: 3,
 		NoViewSharedFiles:  1,
 	}
 	var mo2 MiscOptions2
 	mo2.SetCaptcha()
 	mo2.SetLargeFiles()
-	mo2.SetSourceExt2()
 	return clientproto.HelloAnswer{
 		Hash:  p.session.GetUserAgent(),
 		Point: protocol.NewEndpoint(p.session.GetClientID(), p.session.GetListenPort()),
@@ -484,6 +485,74 @@ func (p *PeerConnection) SendStartUpload(hash protocol.Hash) {
 	if raw, err := p.combiner.Pack("client.StartUpload", &packet); err == nil {
 		p.QueuePacket(raw)
 	}
+}
+
+func (p *PeerConnection) SendSourceExchangeRequest(hash protocol.Hash) {
+	if p.sourceRequestSent || p.remotePeerInfo.Misc1.SourceExchange1Ver < 2 {
+		return
+	}
+	packet := clientproto.SourceExchangeRequest{Hash: hash}
+	if raw, err := p.combiner.Pack("client.SourceExchangeRequest", &packet); err == nil {
+		debugPeerf("peer %s -> SourceExchangeRequest", p.endpoint.String())
+		p.QueuePacket(raw)
+		p.sourceRequestSent = true
+	}
+}
+
+func (p *PeerConnection) SendSourceExchangeAnswer(hash protocol.Hash) {
+	packet := clientproto.SourceExchangeAnswer{Hash: hash}
+	if raw, err := p.combiner.Pack("client.SourceExchangeAnswer", &packet); err == nil {
+		p.QueuePacket(raw)
+	}
+}
+
+func (p *PeerConnection) applyRemoteHello(value *clientproto.HelloAnswer) {
+	if value == nil {
+		return
+	}
+	for _, tag := range value.Properties {
+		switch tag.ID {
+		case 0x11:
+			p.remotePeerInfo.Version = int(tag.UInt32)
+		case 0x55:
+			p.remotePeerInfo.ModName = tag.String
+		case 0xFA:
+			p.remotePeerInfo.Misc1.Assign(int(tag.UInt32))
+		case 0xFE:
+			p.remotePeerInfo.Misc2.Assign(int(tag.UInt32))
+		}
+	}
+}
+
+func (p *PeerConnection) HandleSourceExchangeRequest(value *clientproto.SourceExchangeRequest) {
+	if value == nil || p.session.LookupTransfer(value.Hash) == nil {
+		return
+	}
+	// We do not retain the user hashes required by SX1 v3 entries. A valid
+	// empty response is preferable to advertising endpoints with invented
+	// identities.
+	p.SendSourceExchangeAnswer(value.Hash)
+}
+
+func (p *PeerConnection) HandleSourceExchangeAnswer(value *clientproto.SourceExchangeAnswer) {
+	if value == nil || p.transfer == nil || !value.Hash.Equal(p.transfer.GetHash()) {
+		return
+	}
+	accepted := 0
+	for _, source := range value.Sources {
+		if source.ClientPort == 0 || IsLowID(int32(source.ClientID)) {
+			continue
+		}
+		ip := int32(bits.ReverseBytes32(source.ClientID))
+		endpoint := protocol.NewEndpoint(ip, int(source.ClientPort))
+		if !endpoint.Defined() {
+			continue
+		}
+		if err := p.transfer.AddPeer(endpoint, int(PeerExchange)); err == nil {
+			accepted++
+		}
+	}
+	debugPeerf("peer %s <- SourceExchangeAnswer sources=%d accepted=%d", p.endpoint.String(), len(value.Sources), accepted)
 }
 
 func (p *PeerConnection) SendAcceptUpload() {
@@ -657,6 +726,7 @@ func (p *PeerConnection) HandleHelloAnswer(value *clientproto.HelloAnswer) {
 		return
 	}
 	p.remoteHash = value.Hash
+	p.applyRemoteHello(value)
 	p.friendSlot = p.session.IsFriendSlot(value.Hash)
 	if value.Point.Defined() {
 		p.endpoint.AssignEndpoint(value.Point)
@@ -677,6 +747,7 @@ func (p *PeerConnection) HandleClientHello(value *clientproto.Hello) {
 		return
 	}
 	p.remoteHash = value.Hash
+	p.applyRemoteHello(&value.HelloAnswer)
 	p.friendSlot = p.session.IsFriendSlot(value.Hash)
 	if value.Point.Defined() {
 		p.endpoint.AssignEndpoint(value.Point)
@@ -855,6 +926,9 @@ func (p *PeerConnection) HandleFileStatusAnswer(value *clientproto.FileStatusAns
 		p.remotePieces.GetBit(0),
 		p.remotePieces.GetBit(1),
 		p.remotePieces.GetBit(2))
+	if p.transfer != nil {
+		p.SendSourceExchangeRequest(p.transfer.GetHash())
+	}
 	if p.transfer != nil && p.transfer.Size() > 9728000 {
 		p.SendHashSetRequest(p.transfer.GetHash())
 	} else if p.transfer != nil {
@@ -927,6 +1001,10 @@ func (p *PeerConnection) ProcessIncoming() error {
 		case *clientproto.QueueRanking:
 			debugPeerf("peer %s <- QueueRanking rank=%d", p.endpoint.String(), value.Rank)
 			p.SetRemoteQueueRank(value.Rank)
+		case *clientproto.SourceExchangeRequest:
+			p.HandleSourceExchangeRequest(value)
+		case *clientproto.SourceExchangeAnswer:
+			p.HandleSourceExchangeAnswer(value)
 		case *clientproto.SendingPart32:
 			debugPeerf("peer %s <- SendingPart32 %d..%d", p.endpoint.String(), value.BeginOffset, value.EndOffset)
 			if req, err := data.MakePeerRequest(int64(value.BeginOffset), int64(value.EndOffset)); err == nil {
