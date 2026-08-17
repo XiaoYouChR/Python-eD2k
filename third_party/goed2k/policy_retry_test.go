@@ -28,3 +28,28 @@ func TestFindConnectCandidateHonorsRetryDeadline(t *testing.T) {
 		t.Fatal("peer did not become eligible after its retry deadline")
 	}
 }
+
+func TestPolicyHonorsConfiguredPeerLimit(t *testing.T) {
+	settings := NewSettings()
+	settings.MaxPeerListSize = 2
+	transfer := &Transfer{session: NewSession(settings)}
+	policy := NewPolicy(transfer)
+
+	for i, address := range []string{"1.2.3.1", "1.2.3.2"} {
+		endpoint, err := protocol.EndpointFromString(address, 4662)
+		if err != nil {
+			t.Fatalf("endpoint %d: %v", i+1, err)
+		}
+		if _, err := policy.AddPeer(NewPeerWithSource(endpoint, true, int(PeerServer))); err != nil {
+			t.Fatalf("add peer %d: %v", i+1, err)
+		}
+	}
+
+	endpoint, err := protocol.EndpointFromString("1.2.3.3", 4662)
+	if err != nil {
+		t.Fatalf("endpoint 3: %v", err)
+	}
+	if _, err := policy.AddPeer(NewPeerWithSource(endpoint, true, int(PeerServer))); err == nil {
+		t.Fatal("expected configured peer limit to reject the third peer")
+	}
+}

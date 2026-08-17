@@ -56,7 +56,7 @@ func NewSettings() Settings {
 		ModMinor:                0,
 		ModBuild:                0,
 		MaxFailCount:            20,
-		MaxPeerListSize:         100,
+		MaxPeerListSize:         300,
 		MinPeerReconnectTime:    10,
 		PeerConnectionTimeout:   40,
 		SessionConnectionsLimit: 20,

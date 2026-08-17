@@ -27,6 +27,13 @@ func NewPolicy(t *Transfer) Policy {
 	}
 }
 
+func (p Policy) maxPeerListSize() int {
+	if p.transfer != nil && p.transfer.session != nil {
+		return p.transfer.session.settings.MaxPeerListSize
+	}
+	return MaxPeerListSize
+}
+
 func (p Policy) IsConnectCandidate(pe Peer) bool {
 	return !(pe.Connection != nil || !pe.Connectable || pe.FailCount > 10)
 }
@@ -48,9 +55,10 @@ func (p Policy) Get(endpoint protocol.Endpoint) *Peer {
 }
 
 func (p *Policy) AddPeer(peer Peer) (bool, error) {
-	if MaxPeerListSize != 0 && len(p.peers) >= MaxPeerListSize {
+	maxPeers := p.maxPeerListSize()
+	if maxPeers != 0 && len(p.peers) >= maxPeers {
 		p.ErasePeers()
-		if len(p.peers) >= MaxPeerListSize {
+		if len(p.peers) >= maxPeers {
 			return false, NewError(PeerLimitExceeded)
 		}
 	}
@@ -64,13 +72,14 @@ func (p *Policy) AddPeer(peer Peer) (bool, error) {
 }
 
 func (p *Policy) ErasePeers() {
-	if MaxPeerListSize == 0 || len(p.peers) == 0 {
+	maxPeers := p.maxPeerListSize()
+	if maxPeers == 0 || len(p.peers) == 0 {
 		return
 	}
 	eraseCandidate := -1
 	roundRobin := p.rnd.Intn(len(p.peers))
-	lowWatermark := MaxPeerListSize * 95 / 100
-	if lowWatermark == MaxPeerListSize {
+	lowWatermark := maxPeers * 95 / 100
+	if lowWatermark == maxPeers {
 		lowWatermark--
 	}
 	for iterations := minInt(len(p.peers), 300); iterations > 0; iterations-- {
@@ -138,6 +147,7 @@ func (p Policy) ComparePeerErase(lhs, rhs Peer) bool {
 }
 
 func (p *Policy) FindConnectCandidate(sessionTime int64) *Peer {
+	maxPeers := p.maxPeerListSize()
 	candidate := -1
 	eraseCandidate := -1
 	if p.roundRobin >= len(p.peers) {
@@ -149,7 +159,7 @@ func (p *Policy) FindConnectCandidate(sessionTime int64) *Peer {
 		}
 		pe := p.peers[p.roundRobin]
 		current := p.roundRobin
-		if len(p.peers) > MaxPeerListSize {
+		if maxPeers != 0 && len(p.peers) > maxPeers {
 			if p.IsEraseCandidate(pe) && (eraseCandidate == -1 || !p.ComparePeerErase(p.peers[eraseCandidate], pe)) {
 				if p.shouldEraseImmediately(pe) {
 					if eraseCandidate > current {
