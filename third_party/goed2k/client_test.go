@@ -209,6 +209,9 @@ func TestClientSaveAndLoadStateRestoresProgress(t *testing.T) {
 	if restored.serverAddr != client.serverAddr {
 		t.Fatalf("expected restored server address %q, got %q", client.serverAddr, restored.serverAddr)
 	}
+	if !restored.session.GetUserAgent().Equal(client.session.GetUserAgent()) {
+		t.Fatalf("expected restored user agent %s, got %s", client.session.GetUserAgent(), restored.session.GetUserAgent())
+	}
 
 	for i := 0; i < 50; i++ {
 		UpdateCachedTime()
@@ -1161,6 +1164,7 @@ func cloneClientState(src *ClientState) *ClientState {
 	}
 	dst := &ClientState{
 		Version:       src.Version,
+		UserAgent:     src.UserAgent,
 		ServerAddress: src.ServerAddress,
 		Transfers:     make([]ClientTransferState, 0, len(src.Transfers)),
 		Credits:       append([]ClientCreditState(nil), src.Credits...),

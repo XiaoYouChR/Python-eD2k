@@ -129,6 +129,10 @@ func (d *Daemon) start(raw json.RawMessage) (snapshot, error) {
 	if err := client.Start(); err != nil {
 		return snapshot{}, fmt.Errorf("start client: %w", err)
 	}
+	if err := client.SaveState(""); err != nil {
+		_ = client.Stop()
+		return snapshot{}, fmt.Errorf("save client identity: %w", err)
+	}
 	d.client = client
 	if err := d.bootstrap(params.Settings); err != nil {
 		_ = d.close()

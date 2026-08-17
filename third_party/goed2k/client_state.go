@@ -12,7 +12,7 @@ import (
 	"github.com/monkeyWie/goed2k/protocol"
 )
 
-const clientStateVersion = 2
+const clientStateVersion = 3
 
 type ClientStateStore interface {
 	Load() (*ClientState, error)
@@ -21,6 +21,7 @@ type ClientStateStore interface {
 
 type ClientState struct {
 	Version       int                   `json:"version"`
+	UserAgent     protocol.Hash         `json:"user_agent,omitempty"`
 	ServerAddress string                `json:"server_address,omitempty"`
 	Transfers     []ClientTransferState `json:"transfers"`
 	Credits       []ClientCreditState   `json:"credits,omitempty"`
@@ -185,6 +186,7 @@ func (c *Client) snapshotState() (*ClientState, error) {
 	})
 	state := &ClientState{
 		Version:       clientStateVersion,
+		UserAgent:     c.session.GetUserAgent(),
 		ServerAddress: c.serverAddr,
 		Transfers:     make([]ClientTransferState, 0, len(handles)),
 		Credits:       c.session.Credits().Snapshot(),
@@ -218,8 +220,11 @@ func (c *Client) applyState(state *ClientState) error {
 	if state == nil {
 		return nil
 	}
-	if state.Version != 0 && state.Version != 1 && state.Version != clientStateVersion {
+	if state.Version != 0 && state.Version != 1 && state.Version != 2 && state.Version != clientStateVersion {
 		return errors.New("unsupported state version")
+	}
+	if !state.UserAgent.IsZero() {
+		c.session.settings.UserAgent = state.UserAgent
 	}
 	c.serverAddr = state.ServerAddress
 	c.session.Credits().ApplySnapshot(state.Credits)
