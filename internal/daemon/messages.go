@@ -93,5 +93,6 @@ type transfer struct {
 	Received     int64  `json:"received"`
 	DownloadRate int    `json:"downloadRate"`
 	UploadRate   int    `json:"uploadRate"`
+	ActivePeers  int    `json:"activePeers"`
 	Peers        int    `json:"peers"`
 }

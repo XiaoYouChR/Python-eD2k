@@ -48,6 +48,8 @@ class ClientTest(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(added.name, "example.bin")
             self.assertEqual(added.size, 2048)
+            self.assertEqual(added.activePeers, 0)
+            self.assertEqual(added.peers, 0)
             self.assertEqual(paused.state, "PAUSED")
             self.assertEqual(resumed.state, "DOWNLOADING")
             self.assertEqual((await client.snapshot()).transfers, ())

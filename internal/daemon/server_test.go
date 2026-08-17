@@ -5,7 +5,21 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	goed2k "github.com/monkeyWie/goed2k"
 )
+
+func TestToTransferIncludesActiveAndTotalPeers(t *testing.T) {
+	got := toTransfer(goed2k.TransferSnapshot{
+		ActivePeers: 2,
+		Status: goed2k.TransferStatus{
+			NumPeers: 10,
+		},
+	})
+	if got.ActivePeers != 2 || got.Peers != 10 {
+		t.Fatalf("peer counts = %d/%d, want 2/10", got.ActivePeers, got.Peers)
+	}
+}
 
 func TestConnectServersBestEffortContinuesAfterFailure(t *testing.T) {
 	var attempted []string
