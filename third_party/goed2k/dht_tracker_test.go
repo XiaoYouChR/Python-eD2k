@@ -67,6 +67,28 @@ func TestDHTTrackerBootstrapResponseAddsContacts(t *testing.T) {
 	}
 }
 
+func TestDHTSearchCallbackCanReenterTracker(t *testing.T) {
+	tracker := NewDHTTracker(0, 0)
+	defer tracker.Close()
+	addr, err := net.ResolveUDPAddr("udp", "1.2.3.4:4672")
+	if err != nil {
+		t.Fatalf("resolve addr: %v", err)
+	}
+	tracker.AddNode(addr)
+
+	called := false
+	hash := protocol.MustHashFromString("23A8CEFF57A7A32D562D649ED7893796")
+	if !tracker.SearchKeywords(hash, func([]kadproto.SearchEntry) {
+		_ = tracker.Status()
+		called = true
+	}) {
+		t.Fatal("expected keyword search to start")
+	}
+	if !called {
+		t.Fatal("expected search callback")
+	}
+}
+
 func TestDHTTrackerFindResponseAddsDiscoveredNodes(t *testing.T) {
 	tracker := NewDHTTracker(0, 0)
 	target := protocol.MustHashFromString("23A8CEFF57A7A32D562D649ED7893796")

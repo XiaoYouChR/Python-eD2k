@@ -14,6 +14,8 @@ import (
 
 type DHTTracker struct {
 	mu                  sync.Mutex
+	kadMu               sync.Mutex
+	kadCallbacks        []func()
 	conn                *net.UDPConn
 	listenPort          int
 	searchTimeout       time.Duration
@@ -63,6 +65,35 @@ func NewDHTTracker(listenPort int, timeout time.Duration) *DHTTracker {
 	return tracker
 }
 
+func (t *DHTTracker) runKad(operation func()) {
+	t.kadMu.Lock()
+	operation()
+	t.finishKad()
+}
+
+func (t *DHTTracker) finishKad() {
+	callbacks := t.kadCallbacks
+	t.kadCallbacks = nil
+	t.kadMu.Unlock()
+	for _, callback := range callbacks {
+		callback()
+	}
+}
+
+func (t *DHTTracker) runKadBool(operation func() bool) bool {
+	result := false
+	t.runKad(func() {
+		result = operation()
+	})
+	return result
+}
+
+func (t *DHTTracker) queueKadCallback(callback func()) {
+	if callback != nil {
+		t.kadCallbacks = append(t.kadCallbacks, callback)
+	}
+}
+
 func (t *DHTTracker) Start() error {
 	var err error
 	t.startOnce.Do(func() {
@@ -94,6 +125,8 @@ func (t *DHTTracker) AddNode(addr *net.UDPAddr) {
 	if addr == nil {
 		return
 	}
+	t.kadMu.Lock()
+	defer t.kadMu.Unlock()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	key := addr.String()
@@ -125,6 +158,8 @@ func (t *DHTTracker) ApplyNodesDat(nodes *kadproto.NodesDat) error {
 	if nodes == nil {
 		return nil
 	}
+	t.kadMu.Lock()
+	defer t.kadMu.Unlock()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -164,14 +199,15 @@ func (t *DHTTracker) SearchSources(hash protocol.Hash, size int64, cb func([]kad
 		logx.Debug("dht source search start failed", "hash", hash.String(), "err", err)
 		return false
 	}
-	t.mu.Lock()
-	if len(t.nodes) == 0 && len(t.table.RouterNodes()) == 0 {
+	started := t.runKadBool(func() bool {
+		t.mu.Lock()
+		haveNodes := len(t.nodes) > 0 || len(t.table.RouterNodes()) > 0
 		t.mu.Unlock()
-		logx.Debug("dht source search skipped: no bootstrap nodes", "hash", hash.String())
-		return false
-	}
-	t.mu.Unlock()
-	started := t.node.searchSources(hash, size, cb)
+		if !haveNodes {
+			return false
+		}
+		return t.node.searchSources(hash, size, cb)
+	})
 	if started {
 		logx.Debug("dht source search started", "hash", hash.String(), "size", size)
 	} else {
@@ -190,7 +226,9 @@ func (t *DHTTracker) readLoop() {
 		n, addr, err := t.conn.ReadFromUDP(buffer)
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				t.node.tick()
+				t.runKad(func() {
+					t.node.tick()
+				})
 				select {
 				case <-t.stopCh:
 					return
@@ -215,9 +253,12 @@ func (t *DHTTracker) readLoop() {
 				opcode = buffer[1]
 			}
 			logx.Debug("dht packet ignored", "from", addr.String(), "bytes", n, "header", header, "opcode", opcode, "err", err)
-			t.node.tick()
+			t.runKad(func() {
+				t.node.tick()
+			})
 			continue
 		}
+		t.kadMu.Lock()
 		switch opcode {
 		case kadproto.SearchResOp:
 			t.node.processSearchRes(addr, *(message.(*kadproto.SearchRes)))
@@ -268,6 +309,7 @@ func (t *DHTTracker) readLoop() {
 		// firing. Advance RPC timers after packets too so stalled requests still
 		// expire and traversals continue while the socket is busy.
 		t.node.tick()
+		t.finishKad()
 	}
 }
 
@@ -499,10 +541,12 @@ func (t *DHTTracker) PublishSource(hash protocol.Hash, endpoint protocol.Endpoin
 	if size > 0 {
 		entry.Tags = append(entry.Tags, kadproto.Tag{Type: kadproto.TagTypeUint64, ID: 0xD3, UInt64: uint64(size)})
 	}
+	t.kadMu.Lock()
 	t.mu.Lock()
 	t.storeSourceLocked(hash, entry)
 	nodes := t.closestNodesLocked(kadproto.NewID(hash), 5, true)
 	t.mu.Unlock()
+	t.kadMu.Unlock()
 	if len(nodes) == 0 {
 		return false
 	}
@@ -523,12 +567,14 @@ func (t *DHTTracker) PublishKeyword(keywordHash protocol.Hash, entries ...kadpro
 	if err := t.Start(); err != nil {
 		return false
 	}
+	t.kadMu.Lock()
 	t.mu.Lock()
 	for _, entry := range entries {
 		t.storeKeywordLocked(keywordHash, entry)
 	}
 	nodes := t.closestNodesLocked(kadproto.NewID(keywordHash), 5, true)
 	t.mu.Unlock()
+	t.kadMu.Unlock()
 	if len(nodes) == 0 {
 		return false
 	}
@@ -549,12 +595,14 @@ func (t *DHTTracker) PublishNotes(fileHash protocol.Hash, entries ...kadproto.Se
 	if err := t.Start(); err != nil {
 		return false
 	}
+	t.kadMu.Lock()
 	t.mu.Lock()
 	for _, entry := range entries {
 		t.storeNotesLocked(fileHash, entry)
 	}
 	nodes := t.closestNodesLocked(kadproto.NewID(fileHash), 5, true)
 	t.mu.Unlock()
+	t.kadMu.Unlock()
 	if len(nodes) == 0 {
 		return false
 	}
@@ -575,16 +623,20 @@ func (t *DHTTracker) SearchKeywords(hash protocol.Hash, cb func([]kadproto.Searc
 	if err := t.Start(); err != nil {
 		return false
 	}
-	t.mu.Lock()
-	if len(t.nodes) == 0 && len(t.table.RouterNodes()) == 0 {
+	return t.runKadBool(func() bool {
+		t.mu.Lock()
+		haveNodes := len(t.nodes) > 0 || len(t.table.RouterNodes()) > 0
 		t.mu.Unlock()
-		return false
-	}
-	t.mu.Unlock()
-	return t.node.searchKeywords(hash, cb)
+		if !haveNodes {
+			return false
+		}
+		return t.node.searchKeywords(hash, cb)
+	})
 }
 
 func (t *DHTTracker) SetStoragePoint(addr *net.UDPAddr) {
+	t.kadMu.Lock()
+	defer t.kadMu.Unlock()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.storagePoint = normalizeUDPAddr(addr)
@@ -609,6 +661,8 @@ func (t *DHTTracker) setListenPort(port int) {
 }
 
 func (t *DHTTracker) Status() DHTStatus {
+	t.kadMu.Lock()
+	defer t.kadMu.Unlock()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	live, replacements := t.table.Size()
@@ -632,6 +686,8 @@ func (t *DHTTracker) Status() DHTStatus {
 }
 
 func (t *DHTTracker) SnapshotState() *ClientDHTState {
+	t.kadMu.Lock()
+	defer t.kadMu.Unlock()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	state := &ClientDHTState{
@@ -675,6 +731,8 @@ func (t *DHTTracker) ApplyState(state *ClientDHTState) error {
 	if state == nil {
 		return nil
 	}
+	t.kadMu.Lock()
+	defer t.kadMu.Unlock()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if !state.SelfID.Equal(protocol.Invalid) {
@@ -772,6 +830,8 @@ func (t *DHTTracker) closestEntriesLocked(target kadproto.ID, limit int) []kadpr
 }
 
 func (t *DHTTracker) addOrUpdateNode(id kadproto.ID, addr *net.UDPAddr, tcpPort uint16, version byte, seed bool) {
+	t.kadMu.Lock()
+	defer t.kadMu.Unlock()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.addOrUpdateNodeLocked(id, addr, tcpPort, version, seed)

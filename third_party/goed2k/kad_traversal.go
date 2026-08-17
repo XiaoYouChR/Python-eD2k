@@ -442,7 +442,11 @@ func (t *kadTraversal) done() {
 			})
 		}
 		if t.listener != nil {
-			t.listener(t.accum)
+			listener := t.listener
+			entries := append([]kadproto.SearchEntry(nil), t.accum...)
+			t.node.tracker.queueKadCallback(func() {
+				listener(entries)
+			})
 		}
 	case kadTraversalSearchKeyword:
 		for _, entry := range t.accum {
@@ -452,7 +456,11 @@ func (t *kadTraversal) done() {
 			})
 		}
 		if t.listener != nil {
-			t.listener(t.accum)
+			listener := t.listener
+			entries := append([]kadproto.SearchEntry(nil), t.accum...)
+			t.node.tracker.queueKadCallback(func() {
+				listener(entries)
+			})
 		}
 	case kadTraversalFirewalled:
 		t.node.processAddresses(t.externalIPs)
