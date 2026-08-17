@@ -466,7 +466,7 @@ func TestClientStatusIncludesServersPeersAndTransfers(t *testing.T) {
 	if transfer.FilePath != filePath {
 		t.Fatalf("unexpected transfer path: %s", transfer.FilePath)
 	}
-	if transfer.ActivePeers != 1 || transfer.Status.TotalDone != handle.GetSize() {
+	if transfer.Status.ActivePeers != 1 || transfer.Status.TotalDone != handle.GetSize() {
 		t.Fatalf("unexpected transfer snapshot: %+v", transfer)
 	}
 	if transfer.Status.Upload != 72 || transfer.Status.DownloadRate <= 0 {

@@ -80,7 +80,7 @@ func (c *Client) buildTransferProgressSnapshots() []TransferProgressSnapshot {
 			TotalReceived:     transfer.Status.TotalReceived,
 			TotalWanted:       transfer.Status.TotalWanted,
 			DownloadingPieces: transfer.Status.DownloadingPieces,
-			ActivePeers:       transfer.ActivePeers,
+			ActivePeers:       transfer.Status.ActivePeers,
 			NumPeers:          transfer.Status.NumPeers,
 		})
 	}

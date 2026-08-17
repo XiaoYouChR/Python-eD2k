@@ -34,15 +34,14 @@ func (s ServerSnapshot) IDClass() string {
 }
 
 type TransferSnapshot struct {
-	Hash        protocol.Hash
-	FileName    string
-	FilePath    string
-	CreateTime  int64
-	Size        int64
-	ActivePeers int
-	Status      TransferStatus
-	Peers       []PeerInfo
-	Pieces      []PieceSnapshot
+	Hash       protocol.Hash
+	FileName   string
+	FilePath   string
+	CreateTime int64
+	Size       int64
+	Status     TransferStatus
+	Peers      []PeerInfo
+	Pieces     []PieceSnapshot
 }
 
 func (t TransferSnapshot) ED2KLink() string {
@@ -121,15 +120,14 @@ func (c *Client) TransferSnapshots() []TransferSnapshot {
 			fileName = handle.GetHash().String()
 		}
 		snapshots = append(snapshots, TransferSnapshot{
-			Hash:        handle.GetHash(),
-			FileName:    fileName,
-			FilePath:    filePath,
-			CreateTime:  handle.GetCreateTime(),
-			Size:        handle.GetSize(),
-			ActivePeers: handle.ActiveConnections(),
-			Status:      handle.GetStatus(),
-			Peers:       handle.GetPeersInfo(),
-			Pieces:      handle.PieceSnapshots(),
+			Hash:       handle.GetHash(),
+			FileName:   fileName,
+			FilePath:   filePath,
+			CreateTime: handle.GetCreateTime(),
+			Size:       handle.GetSize(),
+			Status:     handle.GetStatus(),
+			Peers:      handle.GetPeersInfo(),
+			Pieces:     handle.PieceSnapshots(),
 		})
 	}
 	sort.Slice(snapshots, func(i, j int) bool {

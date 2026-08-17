@@ -21,6 +21,7 @@ type TransferStatus struct {
 	DownloadRate      int
 	Upload            int64
 	UploadRate        int
+	ActivePeers       int
 	NumPeers          int
 	DownloadingPieces int
 	TotalDone         int64
@@ -33,6 +34,6 @@ type TransferStatus struct {
 }
 
 func (s TransferStatus) String() string {
-	return fmt.Sprintf("TransferStatus{paused=%t, downloadRate=%d, upload=%d, uploadRate=%d, numPeers=%d, downloadingPieces=%d, totalDone=%d, totalReceived=%d, totalWanted=%d, eta=%d, pieces=%v, numPieces=%d}",
-		s.Paused, s.DownloadRate, s.Upload, s.UploadRate, s.NumPeers, s.DownloadingPieces, s.TotalDone, s.TotalReceived, s.TotalWanted, s.ETA, s.Pieces.Bits(), s.NumPieces)
+	return fmt.Sprintf("TransferStatus{paused=%t, downloadRate=%d, upload=%d, uploadRate=%d, activePeers=%d, numPeers=%d, downloadingPieces=%d, totalDone=%d, totalReceived=%d, totalWanted=%d, eta=%d, pieces=%v, numPieces=%d}",
+		s.Paused, s.DownloadRate, s.Upload, s.UploadRate, s.ActivePeers, s.NumPeers, s.DownloadingPieces, s.TotalDone, s.TotalReceived, s.TotalWanted, s.ETA, s.Pieces.Bits(), s.NumPieces)
 }

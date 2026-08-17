@@ -349,7 +349,7 @@ func toTransfer(item goed2k.TransferSnapshot) transfer {
 		Received:     item.Status.TotalReceived,
 		DownloadRate: item.Status.DownloadRate,
 		UploadRate:   item.Status.UploadRate,
-		ActivePeers:  item.ActivePeers,
+		ActivePeers:  item.Status.ActivePeers,
 		Peers:        item.Status.NumPeers,
 	}
 }

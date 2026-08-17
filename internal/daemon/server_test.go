@@ -11,9 +11,9 @@ import (
 
 func TestToTransferIncludesActiveAndTotalPeers(t *testing.T) {
 	got := toTransfer(goed2k.TransferSnapshot{
-		ActivePeers: 2,
 		Status: goed2k.TransferStatus{
-			NumPeers: 10,
+			ActivePeers: 2,
+			NumPeers:    10,
 		},
 	})
 	if got.ActivePeers != 2 || got.Peers != 10 {

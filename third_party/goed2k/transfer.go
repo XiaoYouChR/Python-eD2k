@@ -363,6 +363,7 @@ func (t *Transfer) GetStatus() TransferStatus {
 		DownloadRate:      int(t.stat.DownloadPayloadRate()),
 		Upload:            t.stat.TotalUpload(),
 		UploadRate:        int(t.stat.UploadRate()),
+		ActivePeers:       t.ActiveConnections(),
 		NumPeers:          t.policy.Size(),
 		DownloadingPieces: t.picker.NumDownloadingPieces(),
 		TotalDone:         totalDone,

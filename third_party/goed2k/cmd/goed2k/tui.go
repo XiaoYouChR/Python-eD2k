@@ -456,7 +456,7 @@ func (m *tuiModel) syncTransfers() {
 			fmt.Sprintf("%.1f%%", percent(transfer.Status.TotalReceived, transfer.Status.TotalWanted)),
 			humanRate(transfer.Status.DownloadRate),
 			fmt.Sprintf("%d", transfer.Status.NumPeers),
-			fmt.Sprintf("%d", transfer.ActivePeers),
+			fmt.Sprintf("%d", transfer.Status.ActivePeers),
 		})
 	}
 	m.table.SetRows(rows)
@@ -716,7 +716,7 @@ func (m tuiModel) renderTransferSection(transfer ed2k.TransferSnapshot, width in
 	lines := []string{
 		titleStyle.Render(transfer.FileName),
 		fmt.Sprintf("state=%s  done=%.2f%%  recv=%.2f%%", transfer.Status.State, percent(transfer.Status.TotalDone, transfer.Status.TotalWanted), percent(transfer.Status.TotalReceived, transfer.Status.TotalWanted)),
-		fmt.Sprintf("rate=%s  up=%s  peers=%d  active=%d  kad_peers=%d  server_peers=%d", humanRate(transfer.Status.DownloadRate), humanRate(transfer.Status.UploadRate), transfer.Status.NumPeers, transfer.ActivePeers, kadPeers, serverPeers),
+		fmt.Sprintf("rate=%s  up=%s  peers=%d  active=%d  kad_peers=%d  server_peers=%d", humanRate(transfer.Status.DownloadRate), humanRate(transfer.Status.UploadRate), transfer.Status.NumPeers, transfer.Status.ActivePeers, kadPeers, serverPeers),
 		fmt.Sprintf("done=%d  recv=%d  total=%d", transfer.Status.TotalDone, transfer.Status.TotalReceived, transfer.Status.TotalWanted),
 		progressBarLine("done", transfer.Status.TotalDone, transfer.Status.TotalWanted, width-8),
 		progressBarLine("recv", transfer.Status.TotalReceived, transfer.Status.TotalWanted, width-8),

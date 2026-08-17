@@ -43,7 +43,7 @@ func main() {
 				donePct,
 				recvPct,
 				transfer.Status.NumPeers,
-				transfer.ActivePeers,
+				transfer.Status.ActivePeers,
 				transfer.Status.DownloadRate)
 		}
 	}
