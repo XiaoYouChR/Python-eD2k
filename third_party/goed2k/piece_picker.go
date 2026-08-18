@@ -5,8 +5,6 @@ import (
 	"github.com/monkeyWie/goed2k/protocol"
 )
 
-const EndGameDPLimit = 4
-
 type PieceState byte
 
 const (
@@ -129,11 +127,12 @@ func (p *PiecePicker) PickPieces(rq *[]data.PieceBlock, orderLength int, peer *P
 
 func (p *PiecePicker) PickPiecesWithAvailability(rq *[]data.PieceBlock, orderLength int, peer *Peer, speed PeerSpeed, available *protocol.BitField) {
 	numRequested := p.addDownloadingBlocks(rq, orderLength, peer, speed, false, available)
-	if speed != PeerSpeedSlow && numRequested < orderLength && p.IsEndGame() {
-		numRequested += p.addDownloadingBlocks(rq, orderLength-numRequested, peer, speed, true, available)
-	}
 	if numRequested < orderLength && p.ChooseNextPieceWithAvailability(available) {
 		p.PickPiecesWithAvailability(rq, orderLength-numRequested, peer, speed, available)
+		return
+	}
+	if speed != PeerSpeedSlow && numRequested < orderLength {
+		p.addDownloadingBlocks(rq, orderLength-numRequested, peer, speed, true, available)
 	}
 }
 
@@ -184,7 +183,7 @@ func (p PiecePicker) NumDownloadingPieces() int { return len(p.downloadingPieces
 func (p PiecePicker) GetPieceCount() int        { return len(p.pieceStatus) }
 
 func (p PiecePicker) IsEndGame() bool {
-	return p.TotalPieces()-p.NumHave()-p.NumDownloadingPieces() == 0 || p.NumDownloadingPieces() > EndGameDPLimit
+	return p.TotalPieces()-p.NumHave()-p.NumDownloadingPieces() == 0
 }
 
 func (p *PiecePicker) WeHave(pieceIndex int) {
