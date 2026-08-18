@@ -40,3 +40,23 @@ func TestPeerConnectionRequestsAndAddsSourceExchangePeers(t *testing.T) {
 		t.Fatalf("source exchange peer was not added: %+v", added)
 	}
 }
+
+func TestSuccessfulHelloClearsConsecutiveFailures(t *testing.T) {
+	session, transfer := newTestTransfer(t)
+	endpoint, err := protocol.EndpointFromString("1.2.3.4", 4662)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := transfer.AddPeer(endpoint, int(PeerServer)); err != nil {
+		t.Fatal(err)
+	}
+	peer := transfer.policy.FindPeer(endpoint)
+	peer.FailCount = 7
+	connection := NewPeerConnection(session, endpoint, transfer, peer)
+
+	connection.HandleHelloAnswer(&clientproto.HelloAnswer{Hash: protocol.EMule})
+
+	if peer.FailCount != 0 {
+		t.Fatalf("successful hello left failure count at %d", peer.FailCount)
+	}
+}

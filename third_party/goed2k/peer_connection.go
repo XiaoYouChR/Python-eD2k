@@ -726,6 +726,9 @@ func (p *PeerConnection) HandleHelloAnswer(value *clientproto.HelloAnswer) {
 		return
 	}
 	p.remoteHash = value.Hash
+	if p.peerInfo != nil {
+		p.peerInfo.FailCount = 0
+	}
 	p.applyRemoteHello(value)
 	p.friendSlot = p.session.IsFriendSlot(value.Hash)
 	if value.Point.Defined() {

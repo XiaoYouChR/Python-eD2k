@@ -14,14 +14,14 @@ const (
 
 type Policy struct {
 	roundRobin int
-	peers      []Peer
+	peers      []*Peer
 	transfer   *Transfer
 	rnd        *rand.Rand
 }
 
 func NewPolicy(t *Transfer) Policy {
 	return Policy{
-		peers:    make([]Peer, 0),
+		peers:    make([]*Peer, 0),
 		transfer: t,
 		rnd:      rand.New(rand.NewSource(CurrentTimeMillis())),
 	}
@@ -34,8 +34,15 @@ func (p Policy) maxPeerListSize() int {
 	return MaxPeerListSize
 }
 
+func (p Policy) maxFailCount() int {
+	if p.transfer != nil && p.transfer.session != nil {
+		return p.transfer.session.settings.MaxFailCount
+	}
+	return 10
+}
+
 func (p Policy) IsConnectCandidate(pe Peer) bool {
-	return !(pe.Connection != nil || !pe.Connectable || pe.FailCount > 10)
+	return !(pe.Connection != nil || !pe.Connectable || pe.FailCount > p.maxFailCount())
 }
 
 func (p Policy) IsEraseCandidate(pe Peer) bool {
@@ -48,7 +55,7 @@ func (p Policy) IsEraseCandidate(pe Peer) bool {
 func (p Policy) Get(endpoint protocol.Endpoint) *Peer {
 	for i := range p.peers {
 		if p.peers[i].Endpoint.Equal(endpoint) {
-			return &p.peers[i]
+			return p.peers[i]
 		}
 	}
 	return nil
@@ -62,12 +69,12 @@ func (p *Policy) AddPeer(peer Peer) (bool, error) {
 			return false, NewError(PeerLimitExceeded)
 		}
 	}
-	insertPos, found := slices.BinarySearchFunc(p.peers, peer, func(a, b Peer) int { return a.Compare(b) })
+	insertPos, found := slices.BinarySearchFunc(p.peers, peer, func(a *Peer, b Peer) int { return a.Compare(b) })
 	if found {
 		p.peers[insertPos].SourceFlag |= peer.SourceFlag
 		return false, nil
 	}
-	p.peers = slices.Insert(p.peers, insertPos, peer)
+	p.peers = slices.Insert(p.peers, insertPos, &peer)
 	return true, nil
 }
 
@@ -91,8 +98,8 @@ func (p *Policy) ErasePeers() {
 		}
 		pe := p.peers[roundRobin]
 		current := roundRobin
-		if p.IsEraseCandidate(pe) && (eraseCandidate == -1 || !p.ComparePeerErase(p.peers[eraseCandidate], pe)) {
-			if p.shouldEraseImmediately(pe) {
+		if p.IsEraseCandidate(*pe) && (eraseCandidate == -1 || !p.ComparePeerErase(*p.peers[eraseCandidate], *pe)) {
+			if p.shouldEraseImmediately(*pe) {
 				if eraseCandidate > current {
 					eraseCandidate--
 				}
@@ -160,8 +167,8 @@ func (p *Policy) FindConnectCandidate(sessionTime int64) *Peer {
 		pe := p.peers[p.roundRobin]
 		current := p.roundRobin
 		if maxPeers != 0 && len(p.peers) > maxPeers {
-			if p.IsEraseCandidate(pe) && (eraseCandidate == -1 || !p.ComparePeerErase(p.peers[eraseCandidate], pe)) {
-				if p.shouldEraseImmediately(pe) {
+			if p.IsEraseCandidate(*pe) && (eraseCandidate == -1 || !p.ComparePeerErase(*p.peers[eraseCandidate], *pe)) {
+				if p.shouldEraseImmediately(*pe) {
 					if eraseCandidate > current {
 						eraseCandidate--
 					}
@@ -175,10 +182,10 @@ func (p *Policy) FindConnectCandidate(sessionTime int64) *Peer {
 			}
 		}
 		p.roundRobin++
-		if !p.IsConnectCandidate(pe) {
+		if !p.IsConnectCandidate(*pe) {
 			continue
 		}
-		if candidate != -1 && p.ComparePeers(p.peers[candidate], pe) {
+		if candidate != -1 && p.ComparePeers(*p.peers[candidate], *pe) {
 			continue
 		}
 		if pe.NextConnection != 0 && sessionTime < pe.NextConnection {
@@ -198,7 +205,7 @@ func (p *Policy) FindConnectCandidate(sessionTime int64) *Peer {
 	if candidate == -1 {
 		return nil
 	}
-	return &p.peers[candidate]
+	return p.peers[candidate]
 }
 
 func (p *Policy) ConnectOnePeer(sessionTime int64) (bool, error) {
@@ -258,7 +265,7 @@ func (p Policy) NumConnectCandidates() int {
 		return res
 	}
 	for _, peer := range p.peers {
-		if p.IsConnectCandidate(peer) && !p.IsEraseCandidate(peer) {
+		if p.IsConnectCandidate(*peer) && !p.IsEraseCandidate(*peer) {
 			res++
 		}
 	}
@@ -305,9 +312,9 @@ func (p Policy) GetSourceRank(sourceBitmask int) int {
 }
 
 func (p Policy) FindPeer(ep protocol.Endpoint) *Peer {
-	pos, found := slices.BinarySearchFunc(p.peers, NewPeer(ep), func(a, b Peer) int { return a.Compare(b) })
+	pos, found := slices.BinarySearchFunc(p.peers, NewPeer(ep), func(a *Peer, b Peer) int { return a.Compare(b) })
 	if found {
-		return &p.peers[pos]
+		return p.peers[pos]
 	}
 	return nil
 }
