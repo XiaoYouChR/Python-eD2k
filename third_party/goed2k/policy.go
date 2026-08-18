@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	MaxPeerListSize     = 100
-	MinReconnectTimeout = 10
+	MaxPeerListSize             = 100
+	DefaultPeerReconnectSeconds = 10
+	DefaultSourceReaskSeconds   = 15 * 60
 )
 
 type Policy struct {
@@ -39,6 +40,20 @@ func (p Policy) maxFailCount() int {
 		return p.transfer.session.settings.MaxFailCount
 	}
 	return 10
+}
+
+func (p Policy) minPeerReconnectTime() int {
+	if p.transfer != nil && p.transfer.session != nil && p.transfer.session.settings.MinPeerReconnectTime > 0 {
+		return p.transfer.session.settings.MinPeerReconnectTime
+	}
+	return DefaultPeerReconnectSeconds
+}
+
+func (p Policy) sourceReaskTime() int {
+	if p.transfer != nil && p.transfer.session != nil && p.transfer.session.settings.SourceReaskTime > 0 {
+		return p.transfer.session.settings.SourceReaskTime
+	}
+	return DefaultSourceReaskSeconds
 }
 
 func (p Policy) IsConnectCandidate(pe Peer) bool {
@@ -191,7 +206,7 @@ func (p *Policy) FindConnectCandidate(sessionTime int64) *Peer {
 		if pe.NextConnection != 0 && sessionTime < pe.NextConnection {
 			continue
 		}
-		if pe.LastConnected != 0 && (sessionTime < pe.LastConnected+Seconds(int64(pe.FailCount+1))*MinReconnectTimeout) {
+		if pe.LastConnected != 0 && sessionTime < pe.LastConnected+Seconds(int64(pe.FailCount+1)*int64(p.minPeerReconnectTime())) {
 			continue
 		}
 		candidate = current
@@ -233,7 +248,13 @@ func (p *Policy) ConnectionClosed(c *PeerConnection, sessionTime int64) {
 	}
 	peer.LastConnected = sessionTime
 	if c.WaitingForDownloadSlot() {
-		peer.NextConnection = sessionTime + Minutes(10)
+		peer.WaitingForDownloadSlot = true
+		peer.RemoteQueueRank = c.RemoteQueueRank()
+		reaskFrom := peer.LastAsked
+		if reaskFrom == 0 {
+			reaskFrom = sessionTime
+		}
+		peer.NextConnection = reaskFrom + Seconds(int64(p.sourceReaskTime()))
 		return
 	}
 	if c.failed {

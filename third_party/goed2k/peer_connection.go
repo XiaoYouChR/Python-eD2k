@@ -94,7 +94,7 @@ const (
 func (m MiscOptions2) SupportCaptcha() bool        { return ((m.Value >> captchaOffset) & 0x01) == 1 }
 func (m MiscOptions2) SupportSourceExt2() bool     { return ((m.Value >> srcExtOffset) & 0x01) == 1 }
 func (m MiscOptions2) SupportExtMultipacket() bool { return ((m.Value >> multipOffset) & 0x01) == 1 }
-func (m MiscOptions2) SupportLargeFiles() bool     { return ((m.Value >> largeFileOffset) & 0x01) == 0 }
+func (m MiscOptions2) SupportLargeFiles() bool     { return ((m.Value >> largeFileOffset) & 0x01) == 1 }
 func (m *MiscOptions2) SetCaptcha()                { m.Value |= 1 << captchaOffset }
 func (m *MiscOptions2) SetSourceExt2()             { m.Value |= 1 << srcExtOffset }
 func (m *MiscOptions2) SetExtMultipacket()         { m.Value |= 1 << multipOffset }
@@ -161,6 +161,7 @@ type PeerConnection struct {
 	friendSlot             bool
 	remoteQueueRank        uint16
 	waitingForDownloadSlot bool
+	queueDisconnectAt      int64
 	sourceRequestSent      bool
 }
 
@@ -239,6 +240,11 @@ func (p *PeerConnection) SecondTick(tickIntervalMS int64) {
 		return
 	}
 	now := CurrentTime()
+	if p.queueDisconnectAt != 0 && now >= p.queueDisconnectAt && p.waitingForDownloadSlot &&
+		p.uploadState == UploadStateNone && len(p.outgoing) == 0 {
+		p.Close(NoError)
+		return
+	}
 	if now-p.lastReceive > int64(p.session.settings.PeerConnectionTimeout)*1000 {
 		p.Close(ConnectionTimeout)
 		return
@@ -274,6 +280,11 @@ func (p *PeerConnection) SetUploadQueueRank(rank uint16) {
 func (p *PeerConnection) SetRemoteQueueRank(rank uint16) {
 	p.remoteQueueRank = rank
 	p.waitingForDownloadSlot = true
+	p.queueDisconnectAt = CurrentTime() + Seconds(2)
+	if p.peerInfo != nil {
+		p.peerInfo.RemoteQueueRank = rank
+		p.peerInfo.WaitingForDownloadSlot = true
+	}
 }
 
 func (p *PeerConnection) RemoteQueueRank() uint16 {
@@ -483,6 +494,14 @@ func (p *PeerConnection) SendStartUpload(hash protocol.Hash) {
 	debugPeerf("peer %s -> StartUpload", p.endpoint.String())
 	packet := clientproto.StartUpload{Hash: hash}
 	if raw, err := p.combiner.Pack("client.StartUpload", &packet); err == nil {
+		p.waitingForDownloadSlot = true
+		p.queueDisconnectAt = 0
+		p.remoteQueueRank = 0
+		if p.peerInfo != nil {
+			p.peerInfo.LastAsked = CurrentTime()
+			p.peerInfo.WaitingForDownloadSlot = true
+			p.peerInfo.RemoteQueueRank = 0
+		}
 		p.QueuePacket(raw)
 	}
 }
@@ -991,7 +1010,12 @@ func (p *PeerConnection) ProcessIncoming() error {
 		case *clientproto.AcceptUpload:
 			debugPeerf("peer %s <- AcceptUpload", p.endpoint.String())
 			p.waitingForDownloadSlot = false
+			p.queueDisconnectAt = 0
 			p.remoteQueueRank = 0
+			if p.peerInfo != nil {
+				p.peerInfo.WaitingForDownloadSlot = false
+				p.peerInfo.RemoteQueueRank = 0
+			}
 			p.RequestBlocks()
 		case *clientproto.StartUpload:
 			p.HandleClientStartUpload(value)
@@ -1008,6 +1032,10 @@ func (p *PeerConnection) ProcessIncoming() error {
 		case *clientproto.QueueRanking:
 			debugPeerf("peer %s <- QueueRanking rank=%d", p.endpoint.String(), value.Rank)
 			p.SetRemoteQueueRank(value.Rank)
+		case *clientproto.QueueRank:
+			rank := min(value.Rank, uint32(math.MaxUint16))
+			debugPeerf("peer %s <- QueueRank rank=%d", p.endpoint.String(), value.Rank)
+			p.SetRemoteQueueRank(uint16(rank))
 		case *clientproto.SourceExchangeRequest:
 			p.HandleSourceExchangeRequest(value)
 		case *clientproto.SourceExchangeAnswer:

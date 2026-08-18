@@ -3,13 +3,16 @@ package goed2k
 import "github.com/monkeyWie/goed2k/protocol"
 
 type Peer struct {
-	LastConnected  int64
-	NextConnection int64
-	FailCount      int
-	Connectable    bool
-	SourceFlag     int
-	Connection     any
-	Endpoint       protocol.Endpoint
+	LastConnected          int64
+	LastAsked              int64
+	NextConnection         int64
+	FailCount              int
+	Connectable            bool
+	SourceFlag             int
+	Connection             any
+	Endpoint               protocol.Endpoint
+	RemoteQueueRank        uint16
+	WaitingForDownloadSlot bool
 }
 
 func NewPeer(ep protocol.Endpoint) Peer {

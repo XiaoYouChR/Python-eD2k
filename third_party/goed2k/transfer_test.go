@@ -2,6 +2,7 @@ package goed2k
 
 import (
 	"bytes"
+	"math"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/monkeyWie/goed2k/data"
 	"github.com/monkeyWie/goed2k/protocol"
+	clientproto "github.com/monkeyWie/goed2k/protocol/client"
 	serverproto "github.com/monkeyWie/goed2k/protocol/server"
 )
 
@@ -493,7 +495,7 @@ func TestPeerConnectionClosesOnStalledPendingRequest(t *testing.T) {
 	}
 }
 
-func TestPeerQueueRankingKeepsConnectionAndDelaysReaskAfterDisconnect(t *testing.T) {
+func TestPeerQueueRankingPersistsStateAndUsesSafeReaskInterval(t *testing.T) {
 	session, transfer := newTestTransfer(t)
 	endpoint, err := protocol.EndpointFromString("1.2.3.4", 4662)
 	if err != nil {
@@ -513,10 +515,13 @@ func TestPeerQueueRankingKeepsConnectionAndDelaysReaskAfterDisconnect(t *testing
 
 	connection.SetRemoteQueueRank(42)
 	if connection.IsDisconnecting() {
-		t.Fatal("queue ranking must not disconnect a usable source")
+		t.Fatal("queue ranking must allow any buffered accept response before disconnecting")
 	}
 	if got := connection.RemoteQueueRank(); got != 42 {
 		t.Fatalf("expected remote queue rank 42, got %d", got)
+	}
+	if !peer.WaitingForDownloadSlot || peer.RemoteQueueRank != 42 {
+		t.Fatalf("queue state was not persisted on peer: %+v", peer)
 	}
 
 	now := CurrentTime()
@@ -529,8 +534,133 @@ func TestPeerQueueRankingKeepsConnectionAndDelaysReaskAfterDisconnect(t *testing
 	if peer.FailCount != 0 {
 		t.Fatalf("queued peer timeout must not count as a failed source, got %d", peer.FailCount)
 	}
-	if peer.NextConnection < now+Minutes(10) {
+	if peer.NextConnection < now+Minutes(15) {
 		t.Fatalf("expected queued source reask delay, got %dms", peer.NextConnection-now)
+	}
+}
+
+func TestStartUploadImmediatelyEntersQueuedState(t *testing.T) {
+	session, transfer := newTestTransfer(t)
+	endpoint, err := protocol.EndpointFromString("1.2.3.4", 4662)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := NewPeerWithSource(endpoint, true, int(PeerServer))
+	connection := NewPeerConnection(session, endpoint, transfer, &peer)
+
+	connection.SendStartUpload(transfer.GetHash())
+
+	if !connection.WaitingForDownloadSlot() || !peer.WaitingForDownloadSlot {
+		t.Fatal("slot request did not enter queued state before an optional rank response")
+	}
+	if peer.LastAsked == 0 {
+		t.Fatal("slot request did not record its reask timestamp")
+	}
+
+	now := CurrentTime()
+	connection.Close(ConnectionTimeout)
+	connection.OnDisconnect(ConnectionTimeout)
+	if peer.FailCount != 0 {
+		t.Fatalf("silent queued peer was counted as a failed source: %d", peer.FailCount)
+	}
+	if peer.NextConnection < now+Minutes(15)-Seconds(1) {
+		t.Fatalf("silent queued peer was scheduled too early: %dms", peer.NextConnection-now)
+	}
+}
+
+func TestQueuedPeerReleasesIdleTCPConnection(t *testing.T) {
+	session, transfer := newTestTransfer(t)
+	endpoint, err := protocol.EndpointFromString("1.2.3.4", 4662)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := NewPeerWithSource(endpoint, true, int(PeerDHT))
+	connection := NewPeerConnection(session, endpoint, transfer, &peer)
+	connection.SetRemoteQueueRank(12)
+	connection.queueDisconnectAt = CurrentTime()
+
+	connection.SecondTick(1000)
+
+	if !connection.IsDisconnecting() {
+		t.Fatal("idle queued connection continued occupying a session slot")
+	}
+}
+
+func TestQueuedPeerKeepsTCPConnectionNeededForUpload(t *testing.T) {
+	session, transfer := newTestTransfer(t)
+	endpoint, err := protocol.EndpointFromString("1.2.3.4", 4662)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := NewPeerWithSource(endpoint, true, int(PeerDHT))
+	connection := NewPeerConnection(session, endpoint, transfer, &peer)
+	connection.SetUploadState(UploadStateOnQueue)
+	connection.SetRemoteQueueRank(12)
+	connection.queueDisconnectAt = CurrentTime()
+
+	connection.SecondTick(1000)
+
+	if connection.IsDisconnecting() {
+		t.Fatal("queued connection needed by the upload side was closed")
+	}
+}
+
+func TestUploadAcceptClearsPersistedQueueState(t *testing.T) {
+	session, transfer := newTestTransfer(t)
+	endpoint, err := protocol.EndpointFromString("1.2.3.4", 4662)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := NewPeerWithSource(endpoint, true, int(PeerDHT))
+	connection := NewPeerConnection(session, endpoint, transfer, &peer)
+	connection.SetRemoteQueueRank(12)
+
+	packet := clientproto.AcceptUpload{}
+	raw, err := connection.combiner.Pack("client.AcceptUpload", &packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection.incoming = append(connection.incoming, raw)
+	if err := connection.ProcessIncoming(); err != nil {
+		t.Fatal(err)
+	}
+
+	if peer.WaitingForDownloadSlot || peer.RemoteQueueRank != 0 {
+		t.Fatalf("accepted slot left stale queue state: %+v", peer)
+	}
+}
+
+func TestLegacyQueueRankEntersQueuedState(t *testing.T) {
+	session, transfer := newTestTransfer(t)
+	endpoint, err := protocol.EndpointFromString("1.2.3.4", 4662)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := NewPeerWithSource(endpoint, true, int(PeerServer))
+	connection := NewPeerConnection(session, endpoint, transfer, &peer)
+	packet := clientproto.QueueRank{Rank: 70000}
+	raw, err := connection.combiner.Pack("client.QueueRank", &packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection.incoming = append(connection.incoming, raw)
+
+	if err := connection.ProcessIncoming(); err != nil {
+		t.Fatal(err)
+	}
+	if !peer.WaitingForDownloadSlot || peer.RemoteQueueRank != math.MaxUint16 {
+		t.Fatalf("legacy queue rank was not retained: %+v", peer)
+	}
+}
+
+func TestMiscOptions2ReportsLargeFileSupport(t *testing.T) {
+	var options MiscOptions2
+	if options.SupportLargeFiles() {
+		t.Fatal("large-file support reported before being enabled")
+	}
+	options.SetLargeFiles()
+	if !options.SupportLargeFiles() {
+		t.Fatal("large-file support was not reported after being enabled")
 	}
 }
 

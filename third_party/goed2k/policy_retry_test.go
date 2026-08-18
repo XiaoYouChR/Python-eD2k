@@ -105,3 +105,26 @@ func TestPolicyUsesConfiguredFailureLimit(t *testing.T) {
 		t.Fatal("peer above configured failure limit remained eligible")
 	}
 }
+
+func TestPolicyUsesConfiguredReconnectDelay(t *testing.T) {
+	settings := NewSettings()
+	settings.MinPeerReconnectTime = 30
+	transfer := &Transfer{session: NewSession(settings)}
+	policy := NewPolicy(transfer)
+	endpoint, err := protocol.EndpointFromString("1.2.3.4", 4662)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := NewPeerWithSource(endpoint, true, int(PeerServer))
+	peer.LastConnected = Seconds(100)
+	if _, err := policy.AddPeer(peer); err != nil {
+		t.Fatal(err)
+	}
+
+	if candidate := policy.FindConnectCandidate(Seconds(129)); candidate != nil {
+		t.Fatal("peer became eligible before configured reconnect delay")
+	}
+	if candidate := policy.FindConnectCandidate(Seconds(130)); candidate == nil {
+		t.Fatal("peer remained ineligible after configured reconnect delay")
+	}
+}
