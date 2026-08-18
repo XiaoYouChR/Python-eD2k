@@ -42,6 +42,8 @@ type Session struct {
 	friendSlots            map[string]bool
 	activeSearch           *searchTask
 	nextSearchID           uint32
+	peerConnectWindowStart int64
+	peerConnectsInWindow   int
 }
 
 type diskTask struct {
@@ -324,19 +326,39 @@ func (s *Session) RequestSourcesNow(transfer *Transfer) bool {
 }
 
 func (s *Session) ConnectNewPeers() {
+	s.connectNewPeers(CurrentTime())
+}
+
+func (s *Session) connectNewPeers(sessionTime int64) {
 	stepsSinceLastConnect := 0
-	maxConnectionsPerSecond := s.settings.MaxConnectionsPerSecond
 	transfers := s.snapshotTransfers()
 	connections := s.snapshotConnections()
 	numTransfers := len(transfers)
+	remainingConnections := s.settings.SessionConnectionsLimit - len(connections)
+	if numTransfers == 0 || remainingConnections <= 0 {
+		return
+	}
+	if s.peerConnectWindowStart == 0 || sessionTime-s.peerConnectWindowStart >= Seconds(1) {
+		s.peerConnectWindowStart = sessionTime
+		s.peerConnectsInWindow = 0
+	}
+	connectionBudget := remainingConnections
+	if s.settings.MaxConnectionsPerSecond > 0 {
+		remainingRate := s.settings.MaxConnectionsPerSecond - s.peerConnectsInWindow
+		if remainingRate <= 0 {
+			return
+		}
+		connectionBudget = minInt(connectionBudget, remainingRate)
+	}
 	enumerateCandidates := true
-	if numTransfers > 0 && len(connections) < s.settings.SessionConnectionsLimit {
+	if connectionBudget > 0 {
 		for enumerateCandidates {
 			for _, t := range transfers {
 				if t.WantMorePeers() {
-					connected, _ := t.TryConnectPeer(CurrentTime())
+					connected, _ := t.TryConnectPeer(sessionTime)
 					if connected {
-						maxConnectionsPerSecond--
+						connectionBudget--
+						s.peerConnectsInWindow++
 						stepsSinceLastConnect = 0
 					}
 				}
@@ -345,7 +367,7 @@ func (s *Session) ConnectNewPeers() {
 					enumerateCandidates = false
 					break
 				}
-				if maxConnectionsPerSecond == 0 {
+				if connectionBudget == 0 {
 					enumerateCandidates = false
 					break
 				}
@@ -438,7 +460,7 @@ func (s *Session) SecondTick(currentSessionTime, tickIntervalMS int64) {
 	s.tickSearches(currentSessionTime)
 	s.processDiskTasks()
 	s.accumulator.SecondTick(tickIntervalMS)
-	s.ConnectNewPeers()
+	s.connectNewPeers(currentSessionTime)
 }
 
 func (s *Session) PumpIO() {
