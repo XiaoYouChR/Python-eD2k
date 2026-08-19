@@ -114,7 +114,7 @@ func (d *Daemon) start(raw json.RawMessage) (snapshot, error) {
 	config.EnableDHT = params.Settings.EnableDHT
 	config.EnableUPnP = params.Settings.EnableUPnP
 	config.ReconnectToServer = params.Settings.ReconnectToServer
-	if os.Getenv("GOED2KD_DEBUG") != "" {
+	if params.Settings.EnableDebugLog || os.Getenv("GOED2KD_DEBUG") != "" {
 		config.Logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
 		}))

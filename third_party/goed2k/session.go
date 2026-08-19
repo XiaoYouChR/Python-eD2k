@@ -535,6 +535,11 @@ func (s *Session) acceptIncomingConnections() {
 				continue
 			}
 			s.mu.Lock()
+			if len(s.connections) >= s.settings.SessionConnectionsLimit {
+				s.mu.Unlock()
+				conn.Close()
+				continue
+			}
 			s.connections = append(s.connections, NewIncomingPeerConnection(s, conn))
 			s.mu.Unlock()
 		default:

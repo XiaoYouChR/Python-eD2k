@@ -77,6 +77,7 @@ type settings struct {
 	EnableDHT         bool     `json:"enableDht"`
 	EnableUPnP        bool     `json:"enableUpnp"`
 	ReconnectToServer bool     `json:"reconnectToServer"`
+	EnableDebugLog    bool     `json:"enableDebugLog"`
 }
 
 type snapshot struct {
