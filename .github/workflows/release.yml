@@ -87,6 +87,13 @@ jobs:
         run: |
           if [ -z "$GITCODE_TOKEN" ]; then echo "No GITCODE_TOKEN, skipping mirror"; exit 0; fi
 
+          sudo tee -a /etc/hosts >/dev/null <<'HOSTS'
+          159.138.147.37 api.atomgit.com
+          159.138.147.37 api.gitcode.com
+          159.138.147.37 file.atomgit.com
+          159.138.147.37 file.gitcode.com
+          HOSTS
+
           API="https://api.gitcode.com/api/v5"
           REPO="XiaoYouChR/Python-eD2k"
           TAG="${{ github.ref_name }}"
