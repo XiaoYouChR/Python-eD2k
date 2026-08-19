@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -113,6 +114,11 @@ func (d *Daemon) start(raw json.RawMessage) (snapshot, error) {
 	config.EnableDHT = params.Settings.EnableDHT
 	config.EnableUPnP = params.Settings.EnableUPnP
 	config.ReconnectToServer = params.Settings.ReconnectToServer
+	if params.Settings.EnableDebugLog || os.Getenv("GOED2KD_DEBUG") != "" {
+		config.Logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}))
+	}
 
 	client := goed2k.NewClient(config)
 	statePath := filepath.Join(params.DataDir, "state.json")
@@ -122,6 +128,10 @@ func (d *Daemon) start(raw json.RawMessage) (snapshot, error) {
 	}
 	if err := client.Start(); err != nil {
 		return snapshot{}, fmt.Errorf("start client: %w", err)
+	}
+	if err := client.SaveState(""); err != nil {
+		_ = client.Stop()
+		return snapshot{}, fmt.Errorf("save client identity: %w", err)
 	}
 	d.client = client
 	if err := d.bootstrap(params.Settings); err != nil {
@@ -133,12 +143,26 @@ func (d *Daemon) start(raw json.RawMessage) (snapshot, error) {
 
 func (d *Daemon) bootstrap(config settings) error {
 	if config.ServerMetSource != "" {
-		if err := d.client.ConnectServerMet(config.ServerMetSource); err != nil {
+		entries, err := d.client.LoadServerMet(config.ServerMetSource)
+		if err != nil {
+			return fmt.Errorf("connect server.met: %w", err)
+		}
+		addresses := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			if address := entry.Address(); address != "" {
+				addresses = append(addresses, address)
+			}
+		}
+		if err := connectServersBestEffort(addresses, func(address string) error {
+			return d.client.ConnectServers(address)
+		}); err != nil {
 			return fmt.Errorf("connect server.met: %w", err)
 		}
 	}
 	if len(config.Servers) > 0 {
-		if err := d.client.ConnectServers(config.Servers...); err != nil {
+		if err := connectServersBestEffort(config.Servers, func(address string) error {
+			return d.client.ConnectServers(address)
+		}); err != nil {
 			return fmt.Errorf("connect servers: %w", err)
 		}
 	}
@@ -153,6 +177,25 @@ func (d *Daemon) bootstrap(config settings) error {
 		}
 	}
 	return nil
+}
+
+func connectServersBestEffort(addresses []string, connect func(string) error) error {
+	if len(addresses) == 0 {
+		return errors.New("no server address provided")
+	}
+	var failures []error
+	connected := 0
+	for _, address := range addresses {
+		if err := connect(address); err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", address, err))
+			continue
+		}
+		connected++
+	}
+	if connected > 0 {
+		return nil
+	}
+	return errors.Join(failures...)
 }
 
 func (d *Daemon) addLink(raw json.RawMessage) (transfer, error) {
@@ -306,6 +349,7 @@ func toTransfer(item goed2k.TransferSnapshot) transfer {
 		Received:     item.Status.TotalReceived,
 		DownloadRate: item.Status.DownloadRate,
 		UploadRate:   item.Status.UploadRate,
+		ActivePeers:  item.Status.ActivePeers,
 		Peers:        item.Status.NumPeers,
 	}
 }

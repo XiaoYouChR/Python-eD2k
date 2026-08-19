@@ -77,6 +77,7 @@ type settings struct {
 	EnableDHT         bool     `json:"enableDht"`
 	EnableUPnP        bool     `json:"enableUpnp"`
 	ReconnectToServer bool     `json:"reconnectToServer"`
+	EnableDebugLog    bool     `json:"enableDebugLog"`
 }
 
 type snapshot struct {
@@ -93,5 +94,6 @@ type transfer struct {
 	Received     int64  `json:"received"`
 	DownloadRate int    `json:"downloadRate"`
 	UploadRate   int    `json:"uploadRate"`
+	ActivePeers  int    `json:"activePeers"`
 	Peers        int    `json:"peers"`
 }

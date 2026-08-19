@@ -22,6 +22,7 @@ class Settings:
     enableDht: bool = True
     enableUpnp: bool = True
     reconnectToServer: bool = True
+    enableDebugLog: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +36,7 @@ class Transfer:
     received: int
     downloadRate: int
     uploadRate: int
+    activePeers: int
     peers: int
 
 

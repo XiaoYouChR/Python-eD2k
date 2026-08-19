@@ -270,6 +270,7 @@ def _toSettings(settings: Settings) -> dict[str, Any]:
         "enableDht": settings.enableDht,
         "enableUpnp": settings.enableUpnp,
         "reconnectToServer": settings.reconnectToServer,
+        "enableDebugLog": settings.enableDebugLog,
     }
 
 
@@ -285,6 +286,7 @@ def _toTransfer(value: Any) -> Transfer:
             received=value["received"],
             downloadRate=value["downloadRate"],
             uploadRate=value["uploadRate"],
+            activePeers=value["activePeers"],
             peers=value["peers"],
         )
     except (KeyError, TypeError, ValueError) as error:
