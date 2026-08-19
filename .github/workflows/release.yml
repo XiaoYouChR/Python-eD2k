@@ -89,6 +89,7 @@ jobs:
 
           sudo tee -a /etc/hosts >/dev/null <<'HOSTS'
           159.138.147.37 api.atomgit.com
+          159.138.147.37 api.gitcode.com
           159.138.147.37 file.atomgit.com
           159.138.147.37 file.gitcode.com
           HOSTS
