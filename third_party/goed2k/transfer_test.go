@@ -156,6 +156,30 @@ func TestTransferDownloadRateExcludesControlTraffic(t *testing.T) {
 	}
 }
 
+func TestTransferUploadRateExcludesControlTraffic(t *testing.T) {
+	session, transfer := newTestTransfer(t)
+	endpoint, err := protocol.EndpointFromString("1.2.3.4", 4662)
+	if err != nil {
+		t.Fatalf("endpoint: %v", err)
+	}
+	connection := NewPeerConnection(session, endpoint, transfer, nil)
+	transfer.connections = append(transfer.connections, connection)
+
+	connection.stat.SendBytes(500, 0)
+	transfer.SecondTick(nil, 1000)
+	status := transfer.GetStatus()
+	if status.UploadRate != 0 {
+		t.Fatalf("expected control-only traffic to report 0 B/s, got %d", status.UploadRate)
+	}
+
+	connection.stat.SendBytes(100, 900)
+	transfer.SecondTick(nil, 1000)
+	status = transfer.GetStatus()
+	if status.UploadRate <= 0 {
+		t.Fatalf("expected payload traffic to report a positive rate, got %d", status.UploadRate)
+	}
+}
+
 func TestStatisticsReclassifiesReceivedPayload(t *testing.T) {
 	stats := NewStatistics()
 	stats.ReceiveBytes(1000, 0)
