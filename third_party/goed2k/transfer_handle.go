@@ -84,8 +84,9 @@ func (h TransferHandle) Resume() {
 		return
 	}
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.transfer.ResumeWithState()
+	h.mu.Unlock()
+	h.ses.PublishTransferToServer(h.transfer)
 }
 
 func (h TransferHandle) IsPaused() bool {

@@ -1119,3 +1119,31 @@ func TestUploadQueueMaxSlotsUsesUploadRate(t *testing.T) {
 		t.Fatalf("expected dynamic slot count >= %d, got %d", minUploadClientsAllowed, got)
 	}
 }
+
+func TestResumeFinishedTransferPublishesToConnectedServer(t *testing.T) {
+	session, transfer := newTestTransfer(t)
+	addr := &net.TCPAddr{IP: net.IPv4(45, 82, 80, 155), Port: 5687}
+	server := NewServerConnection("a", addr, session)
+	server.handshakeCompleted = true
+	session.serverConnection = server
+	session.serverConnections["a"] = server
+	session.clientID = 1234
+	transfer.state = Finished
+	handle := NewTransferHandleWithTransfer(session, transfer)
+	handle.Pause()
+	before := len(server.PendingPackets())
+
+	handle.Resume()
+
+	combiner := serverproto.NewPacketCombiner()
+	for _, raw := range server.PendingPackets()[before:] {
+		_, packet, err := combiner.UnpackFrame(raw)
+		if err != nil {
+			t.Fatalf("unpack frame: %v", err)
+		}
+		if _, ok := packet.(*serverproto.OfferFiles); ok {
+			return
+		}
+	}
+	t.Fatal("expected OfferFiles packet after finished transfer resumed")
+}

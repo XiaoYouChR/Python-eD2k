@@ -90,3 +90,34 @@ func TestLocalPeerUploadServesRequestedData(t *testing.T) {
 		t.Fatal("uploaded payload mismatch")
 	}
 }
+
+func TestPausedTransferDoesNotUpload(t *testing.T) {
+	payload := bytes.Repeat([]byte("goed2k-pause-"), 16000)
+	hash, err := protocol.HashFromData(payload)
+	if err != nil {
+		t.Fatalf("hash payload: %v", err)
+	}
+	seedPath := filepath.Join(t.TempDir(), "seed.bin")
+	if err := os.WriteFile(seedPath, payload, 0o644); err != nil {
+		t.Fatalf("write seed file: %v", err)
+	}
+	session := NewSession(NewSettings())
+	handle, err := session.AddTransferWithHandler(hash, int64(len(payload)), disk.NewDesktopFileHandler(seedPath))
+	if err != nil {
+		t.Fatalf("add transfer: %v", err)
+	}
+	handle.transfer.WeHave(0)
+	if !handle.transfer.CanUpload() {
+		t.Fatal("expected transfer with a piece to upload")
+	}
+
+	handle.Pause()
+	if handle.transfer.CanUpload() {
+		t.Fatal("expected paused transfer to refuse uploads")
+	}
+
+	handle.Resume()
+	if !handle.transfer.CanUpload() {
+		t.Fatal("expected resumed transfer to upload again")
+	}
+}

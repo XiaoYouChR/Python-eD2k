@@ -620,7 +620,7 @@ func (t *Transfer) UploadHashSet() []protocol.Hash {
 }
 
 func (t *Transfer) CanUpload() bool {
-	return t != nil && !t.abort && t.pm != nil && t.picker.NumHave() > 0
+	return t != nil && !t.abort && !t.pause && t.pm != nil && t.picker.NumHave() > 0
 }
 
 func (t *Transfer) CanUploadRange(begin, end int64) bool {
