@@ -241,8 +241,11 @@ func (d *Daemon) addLink(raw json.RawMessage) (transfer, error) {
 			return transfer{}, fail(codeOutputExists, errors.New("output path already in use"))
 		}
 	}
-	if _, err := os.Stat(targetPath); err == nil {
-		return transfer{}, fail(codeOutputExists, errors.New("output path already exists"))
+	// 空文件是调用方预先占住的文件名，接管它
+	if info, err := os.Stat(targetPath); err == nil {
+		if !info.Mode().IsRegular() || info.Size() != 0 {
+			return transfer{}, fail(codeOutputExists, errors.New("output path already exists"))
+		}
 	} else if !os.IsNotExist(err) {
 		return transfer{}, fmt.Errorf("inspect output path: %w", err)
 	}
