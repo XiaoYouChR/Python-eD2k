@@ -93,6 +93,8 @@ func (d *Daemon) runRequest(request request) (any, bool, error) {
 	}
 }
 
+const sessionConnectionsLimit = 200
+
 func (d *Daemon) start(raw json.RawMessage) (snapshot, error) {
 	if d.client != nil {
 		return snapshot{}, fail(codeInvalidRequest, errors.New("client is already running"))
@@ -114,6 +116,7 @@ func (d *Daemon) start(raw json.RawMessage) (snapshot, error) {
 	config.EnableDHT = params.Settings.EnableDHT
 	config.EnableUPnP = params.Settings.EnableUPnP
 	config.ReconnectToServer = params.Settings.ReconnectToServer
+	config.SessionConnectionsLimit = sessionConnectionsLimit
 	if params.Settings.EnableDebugLog || os.Getenv("GOED2KD_DEBUG") != "" {
 		config.Logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
@@ -134,49 +137,66 @@ func (d *Daemon) start(raw json.RawMessage) (snapshot, error) {
 		return snapshot{}, fmt.Errorf("save client identity: %w", err)
 	}
 	d.client = client
-	if err := d.bootstrap(params.Settings); err != nil {
-		_ = d.close()
-		return snapshot{}, err
-	}
+	d.bootstrap(params.Settings)
 	return d.snapshot()
 }
 
-func (d *Daemon) bootstrap(config settings) error {
-	if config.ServerMetSource != "" {
-		entries, err := d.client.LoadServerMet(config.ServerMetSource)
-		if err != nil {
-			return fmt.Errorf("connect server.met: %w", err)
-		}
+func (d *Daemon) bootstrap(config settings) {
+	addresses, failures := serverMetAddresses(config.ServerMetSource, func(source string) ([]string, error) {
+		entries, err := d.client.LoadServerMet(source)
 		addresses := make([]string, 0, len(entries))
 		for _, entry := range entries {
 			if address := entry.Address(); address != "" {
 				addresses = append(addresses, address)
 			}
 		}
+		return addresses, err
+	})
+	for _, err := range failures {
+		slog.Warn("load server.met", "err", err)
+	}
+	addresses = append(config.Servers, addresses...)
+	if len(addresses) > 0 {
 		if err := connectServersBestEffort(addresses, func(address string) error {
 			return d.client.ConnectServers(address)
 		}); err != nil {
-			return fmt.Errorf("connect server.met: %w", err)
-		}
-	}
-	if len(config.Servers) > 0 {
-		if err := connectServersBestEffort(config.Servers, func(address string) error {
-			return d.client.ConnectServers(address)
-		}); err != nil {
-			return fmt.Errorf("connect servers: %w", err)
+			slog.Warn("connect servers", "err", err)
 		}
 	}
 	if config.NodesDatSource != "" {
 		if err := d.client.LoadDHTNodesDat(config.NodesDatSource); err != nil {
-			return fmt.Errorf("load nodes.dat: %w", err)
+			slog.Warn("load nodes.dat", "err", err)
 		}
 	}
 	if len(config.DHTNodes) > 0 {
 		if err := d.client.AddDHTBootstrapNodes(config.DHTNodes...); err != nil {
-			return fmt.Errorf("add DHT nodes: %w", err)
+			slog.Warn("add DHT nodes", "err", err)
 		}
 	}
-	return nil
+}
+
+func serverMetAddresses(sources string, load func(string) ([]string, error)) ([]string, []error) {
+	var addresses []string
+	var failures []error
+	seen := map[string]bool{}
+	for _, source := range strings.Split(sources, ",") {
+		source = strings.TrimSpace(source)
+		if source == "" {
+			continue
+		}
+		loaded, err := load(source)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", source, err))
+			continue
+		}
+		for _, address := range loaded {
+			if !seen[address] {
+				seen[address] = true
+				addresses = append(addresses, address)
+			}
+		}
+	}
+	return addresses, failures
 }
 
 func connectServersBestEffort(addresses []string, connect func(string) error) error {
@@ -319,7 +339,7 @@ func (d *Daemon) snapshot() (snapshot, error) {
 	if d.client == nil {
 		return snapshot{}, fail(codeNotRunning, errors.New("client is not running"))
 	}
-	return toSnapshot(d.client.TransferSnapshots()), nil
+	return toSnapshot(d.client.Status(), d.client.DHTStatus()), nil
 }
 
 func (d *Daemon) transfer(hash protocol.Hash) (transfer, error) {
@@ -352,15 +372,22 @@ func toTransfer(item goed2k.TransferSnapshot) transfer {
 		Received:     item.Status.TotalReceived,
 		DownloadRate: item.Status.DownloadRate,
 		UploadRate:   item.Status.UploadRate,
+		Upload:       item.Status.Upload,
 		ActivePeers:  item.Status.ActivePeers,
 		Peers:        item.Status.NumPeers,
 	}
 }
 
-func toSnapshot(items []goed2k.TransferSnapshot) snapshot {
-	current := snapshot{Transfers: make([]transfer, 0, len(items))}
-	for _, item := range items {
+func toSnapshot(status goed2k.ClientStatus, dht goed2k.DHTStatus) snapshot {
+	current := snapshot{
+		Transfers: make([]transfer, 0, len(status.Transfers)),
+		KadNodes:  dht.LiveNodes,
+	}
+	for _, item := range status.Transfers {
 		current.Transfers = append(current.Transfers, toTransfer(item))
+	}
+	for _, server := range status.Servers {
+		current.ServerConnected = current.ServerConnected || server.HandshakeCompleted
 	}
 	return current
 }
@@ -375,7 +402,7 @@ func (d *Daemon) subscribeStatus() {
 			if err := d.write(notification{
 				Version: rpcVersion,
 				Method:  "snapshot",
-				Params:  toSnapshot(event.TransferSnapshots()),
+				Params:  toSnapshot(event.Status, event.DHT),
 			}); err != nil {
 				return
 			}

@@ -110,7 +110,10 @@ class ClientTest(unittest.IsolatedAsyncioTestCase):
 
             initial = await asyncio.wait_for(anext(snapshots), timeout=2)
             added = await client.addLink(link, Path(outputDir))
-            changed = await asyncio.wait_for(anext(snapshots), timeout=2)
+            changed = await asyncio.wait_for(
+                anext(current async for current in snapshots if current.transfers),
+                timeout=2,
+            )
 
             self.assertEqual(initial.transfers, ())
             self.assertEqual(changed.transfers, (added,))
@@ -131,36 +134,36 @@ class ClientTest(unittest.IsolatedAsyncioTestCase):
 
             await asyncio.wait_for(client.close(), timeout=5)
 
-    async def test_bootstrap_source_preserves_an_http_url(self) -> None:
-        source = "http://127.0.0.1:1/server.met"
+    async def test_unreachable_bootstrap_sources_do_not_stop_the_start(self) -> None:
         with tempfile.TemporaryDirectory() as dataDir:
             client = Client(SIDECAR, Path(dataDir))
             self.addAsyncCleanup(client.terminate)
 
-            with self.assertRaises(Error) as raised:
-                await client.start(
-                    Settings(
-                        serverMetSource=source,
-                        enableDht=False,
-                        enableUpnp=False,
-                    )
+            started = await client.start(
+                Settings(
+                    serverMetSource="http://127.0.0.1:1/a.met,http://127.0.0.1:1/b.met",
+                    nodesDatSource="http://127.0.0.1:1/nodes.dat",
+                    enableDht=False,
+                    enableUpnp=False,
                 )
+            )
 
-            self.assertIn(source, str(raised.exception))
+            self.assertTrue(client.isRunning)
+            self.assertFalse(started.serverConnected)
+            self.assertEqual(started.kadNodes, 0)
 
-    async def test_dht_bootstrap_source_preserves_an_http_url(self) -> None:
-        source = "http://127.0.0.1:1/nodes.dat"
-        with tempfile.TemporaryDirectory() as dataDir:
+            await asyncio.wait_for(client.close(), timeout=5)
+            self.assertFalse(client.isRunning)
+
+    async def test_transfer_reports_its_upload_total(self) -> None:
+        link = "ed2k://|file|upload.bin|2048|31D6CFE0D16AE931B73C59D7E0C089C0|/"
+        with tempfile.TemporaryDirectory() as dataDir, tempfile.TemporaryDirectory() as outputDir:
             client = Client(SIDECAR, Path(dataDir))
+            await client.start(Settings(enableDht=False, enableUpnp=False))
             self.addAsyncCleanup(client.terminate)
 
-            with self.assertRaises(Error) as raised:
-                await client.start(
-                    Settings(
-                        nodesDatSource=source,
-                        enableDht=False,
-                        enableUpnp=False,
-                    )
-                )
+            added = await client.addLink(link, Path(outputDir))
 
-            self.assertIn(source, str(raised.exception))
+            self.assertEqual(added.upload, 0)
+
+            await asyncio.wait_for(client.close(), timeout=5)

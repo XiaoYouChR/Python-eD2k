@@ -60,3 +60,47 @@ func TestConnectServersBestEffortRejectsAnEmptyList(t *testing.T) {
 		t.Fatalf("connectServersBestEffort() error = %v", err)
 	}
 }
+
+func TestServerMetAddressesMergesEverySourceAndSkipsFailures(t *testing.T) {
+	lists := map[string][]string{
+		"a.met": {"1.1.1.1:4661", "2.2.2.2:4661"},
+		"c.met": {"2.2.2.2:4661", "3.3.3.3:4661"},
+	}
+	got, failures := serverMetAddresses(" a.met, dead.met ,c.met,", func(source string) ([]string, error) {
+		if addresses, ok := lists[source]; ok {
+			return addresses, nil
+		}
+		return nil, errors.New("unreachable")
+	})
+
+	if want := []string{"1.1.1.1:4661", "2.2.2.2:4661", "3.3.3.3:4661"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("addresses = %v, want %v", got, want)
+	}
+	if len(failures) != 1 || !strings.Contains(failures[0].Error(), "dead.met") {
+		t.Fatalf("failures = %v", failures)
+	}
+}
+
+func TestToSnapshotReportsNetworkAndUploadTotals(t *testing.T) {
+	got := toSnapshot(goed2k.ClientStatus{
+		Servers: []goed2k.ServerSnapshot{
+			{Connected: true},
+			{Connected: true, HandshakeCompleted: true},
+		},
+		Transfers: []goed2k.TransferSnapshot{{Status: goed2k.TransferStatus{Upload: 4096}}},
+	}, goed2k.DHTStatus{LiveNodes: 134})
+
+	if !got.ServerConnected || got.KadNodes != 134 || got.Transfers[0].Upload != 4096 {
+		t.Fatalf("snapshot = %+v", got)
+	}
+}
+
+func TestToSnapshotNeedsACompletedServerHandshake(t *testing.T) {
+	got := toSnapshot(goed2k.ClientStatus{
+		Servers: []goed2k.ServerSnapshot{{Connected: true}},
+	}, goed2k.DHTStatus{})
+
+	if got.ServerConnected {
+		t.Fatal("serverConnected = true before handshake")
+	}
+}

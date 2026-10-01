@@ -469,7 +469,7 @@ func TestClientStatusIncludesServersPeersAndTransfers(t *testing.T) {
 	if transfer.Status.ActivePeers != 1 || transfer.Status.TotalDone != handle.GetSize() {
 		t.Fatalf("unexpected transfer snapshot: %+v", transfer)
 	}
-	if transfer.Status.Upload != 72 || transfer.Status.DownloadRate <= 0 {
+	if transfer.Status.Upload != 64 || transfer.Status.DownloadRate <= 0 {
 		t.Fatalf("unexpected transfer traffic counters: %+v", transfer.Status)
 	}
 	if len(transfer.Pieces) != 1 {
@@ -493,7 +493,7 @@ func TestClientStatusIncludesServersPeersAndTransfers(t *testing.T) {
 		t.Fatalf("unexpected peer mod name: %s", peerSnapshot.Peer.ModName)
 	}
 
-	if status.TotalDone != handle.GetSize() || status.Upload != 72 || status.DownloadRate <= 0 {
+	if status.TotalDone != handle.GetSize() || status.Upload != 64 || status.DownloadRate <= 0 {
 		t.Fatalf("unexpected client totals: %+v", status)
 	}
 }

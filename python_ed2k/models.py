@@ -36,6 +36,7 @@ class Transfer:
     received: int
     downloadRate: int
     uploadRate: int
+    upload: int
     activePeers: int
     peers: int
 
@@ -43,3 +44,5 @@ class Transfer:
 @dataclass(frozen=True, slots=True)
 class Snapshot:
     transfers: tuple[Transfer, ...]
+    serverConnected: bool
+    kadNodes: int

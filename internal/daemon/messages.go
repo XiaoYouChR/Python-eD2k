@@ -81,7 +81,9 @@ type settings struct {
 }
 
 type snapshot struct {
-	Transfers []transfer `json:"transfers"`
+	Transfers       []transfer `json:"transfers"`
+	ServerConnected bool       `json:"serverConnected"`
+	KadNodes        int        `json:"kadNodes"`
 }
 
 type transfer struct {
@@ -94,6 +96,7 @@ type transfer struct {
 	Received     int64  `json:"received"`
 	DownloadRate int    `json:"downloadRate"`
 	UploadRate   int    `json:"uploadRate"`
+	Upload       int64  `json:"upload"`
 	ActivePeers  int    `json:"activePeers"`
 	Peers        int    `json:"peers"`
 }
