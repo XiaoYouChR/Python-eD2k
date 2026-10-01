@@ -3,6 +3,7 @@ package disk
 import (
 	"errors"
 	"os"
+	"sync"
 )
 
 type FileHandler interface {
@@ -14,6 +15,7 @@ type FileHandler interface {
 
 type DesktopFileHandler struct {
 	path string
+	mu   sync.Mutex
 	file *os.File
 }
 
@@ -21,24 +23,13 @@ func NewDesktopFileHandler(path string) *DesktopFileHandler {
 	return &DesktopFileHandler{path: path}
 }
 
-func (h *DesktopFileHandler) ensureFile(flag int) (*os.File, error) {
-	if h.file != nil {
-		return h.file, nil
-	}
-	f, err := os.OpenFile(h.path, flag, 0o644)
-	if err != nil {
-		return nil, err
-	}
-	h.file = f
-	return h.file, nil
-}
-
 func (h *DesktopFileHandler) File() *os.File {
-	if h.file != nil {
-		return h.file
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.file == nil {
+		h.file, _ = os.OpenFile(h.path, os.O_RDWR|os.O_CREATE, 0o644)
 	}
-	f, _ := h.ensureFile(os.O_RDWR | os.O_CREATE)
-	return f
+	return h.file
 }
 
 func (h *DesktopFileHandler) Path() string {
@@ -46,6 +37,8 @@ func (h *DesktopFileHandler) Path() string {
 }
 
 func (h *DesktopFileHandler) Close() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if h.file == nil {
 		return nil
 	}

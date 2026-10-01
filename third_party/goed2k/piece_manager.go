@@ -1,7 +1,6 @@
 package goed2k
 
 import (
-	"io"
 	"os"
 
 	"github.com/monkeyWie/goed2k/data"
@@ -40,12 +39,7 @@ func (p *PieceManager) WriteBlock(block data.PieceBlock, buffer []byte) ([][]byt
 		return nil, NewError(IOException)
 	}
 	debugPeerf("piece manager write block piece=%d block=%d len=%d", block.PieceIndex, block.PieceBlock, len(buffer))
-	bytesOffset := block.BlocksOffset() * BlockSize
-	if _, err := file.Seek(bytesOffset, io.SeekStart); err != nil {
-		_ = p.handler.Close()
-		return nil, NewError(IOException)
-	}
-	if _, err := file.Write(buffer); err != nil {
+	if _, err := file.WriteAt(buffer, block.BlocksOffset()*BlockSize); err != nil {
 		_ = p.handler.Close()
 		return nil, NewError(IOException)
 	}
@@ -57,12 +51,8 @@ func (p *PieceManager) RestoreBlock(block data.PieceBlock, fileSize int64) ([][]
 	if file == nil {
 		return nil, nil, NewError(IOException)
 	}
-	bytesOffset := block.BlocksOffset() * BlockSize
-	if _, err := file.Seek(bytesOffset, io.SeekStart); err != nil {
-		return nil, nil, NewError(IOException)
-	}
 	buffer := make([]byte, block.Size(fileSize))
-	if _, err := io.ReadFull(file, buffer); err != nil {
+	if _, err := file.ReadAt(buffer, block.BlocksOffset()*BlockSize); err != nil {
 		return nil, nil, NewError(IOException)
 	}
 	res := p.getBlockManager(block.PieceIndex).RegisterBlock(block.PieceBlock, buffer)
@@ -77,11 +67,8 @@ func (p *PieceManager) ReadRange(begin, end int64) ([]byte, error) {
 	if file == nil {
 		return nil, NewError(IOException)
 	}
-	if _, err := file.Seek(begin, io.SeekStart); err != nil {
-		return nil, NewError(IOException)
-	}
 	buffer := make([]byte, end-begin)
-	if _, err := io.ReadFull(file, buffer); err != nil {
+	if _, err := file.ReadAt(buffer, begin); err != nil {
 		return nil, NewError(IOException)
 	}
 	return buffer, nil
