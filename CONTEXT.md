@@ -25,6 +25,14 @@ bootstrap source strings and ports. A bootstrap source is an opaque local path,
 URL, or eD2k source understood by `goed2k`; Python does not parse or fetch it.
 The Sidecar decides how connections are maintained.
 
+Rate Limits are the only settings that also change while running.
+
+## Rate Limit
+
+A session-wide cap on download or upload bytes per second; 0 means unlimited.
+It counts every byte on peer connections, protocol overhead included, so the
+observed rate never exceeds it. Server and KAD traffic is not limited.
+
 ## Snapshot
 
 The current observable eD2k state. Snapshots are facts, not a reliable history
