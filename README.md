@@ -1,5 +1,11 @@
 # Python-eD2k
 
+> [!IMPORTANT]
+> This project is archived and superseded by
+> [Kelpie](https://github.com/XiaoYouChR/Kelpie), a standalone eD2k engine
+> with its own Python package. Ghost Downloader now uses Kelpie, which resumes
+> the downloads Python-eD2k left unfinished. Existing releases stay available.
+
 Python-eD2k is a typed asyncio client for
 [monkeyWie/goed2k](https://github.com/monkeyWie/goed2k). It runs goed2k in one
 small Go sidecar and communicates through stdio NDJSON.
